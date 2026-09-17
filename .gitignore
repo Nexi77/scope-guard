@@ -1,0 +1,5 @@
+# 10xDevs
+.agents/**/10x-*
+.10x-cli.json
+**/.10x-cli-manifest.json
+skills-lock
