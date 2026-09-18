@@ -1,46 +1,23 @@
-# ScopeGuard agent guide
+# Repository Guidelines
 
-## Product guardrails
+ScopeGuard records contractor/customer decisions about changes to an offer. The product contract lives in @context/foundation/prd.md; use it to resolve ambiguous feature requests.
 
-ScopeGuard records customer decisions about changes to a contractor's offer. The full product contract is in `context/foundation/prd.md`; keep it authoritative when a request is ambiguous.
+## Product and Security Rules
 
-- A change that affects price or deadline must receive a new customer approval before it becomes part of the active scope.
-- A change with no price or deadline impact can be applied immediately, but must remain in the offer history.
-- Rejected changes never become part of the active scope. Preserve the change, decision, comment, and timestamp in history.
-- Customer links must be scoped to one offer only. Viewing may use the shared link; accepting or rejecting requires that offer's six-digit PIN.
-- Decision endpoints must be idempotent: a repeated submission must not create a duplicate decision or inconsistent offer state.
-- The MVP is for one contractor. Do not introduce customer accounts, teams, billing, CRM, AI estimates, or broad client portals unless the task explicitly expands scope.
+Keep the MVP focused on one contractor. Do not add customer accounts, teams, billing, CRM, AI estimates, or a broad client portal unless the request explicitly expands scope. A price- or deadline-affecting change requires a new customer approval; rejected changes remain in history and never enter the active scope. Shared customer links may expose only their assigned offer, and accept/reject actions require its six-digit PIN and must be idempotent.
 
-## Stack and architecture
+Keep `SUPABASE_URL` and `SUPABASE_KEY` server-only. Never commit `.env` or `.dev.vars`, log credentials or PINs, or rely on hidden UI elements for authorization. Follow @src/lib/supabase.ts and @src/middleware.ts for cookie-backed authentication and protected routes.
 
-- Astro 7 SSR application, React 19 islands, TypeScript, Tailwind CSS 4, Supabase, and Cloudflare Workers/Pages.
-- Pages render on the server by default (`output: "server"`). API routes must export uppercase handlers (`GET`, `POST`, etc.) and set `export const prerender = false` when required.
-- Prefer Astro components for static content and layouts. Use React only where client-side interactivity is needed; do not add Next.js directives.
-- `@/*` maps to `src/*`. Put reusable business logic in `src/lib/` (or `src/lib/services/`), shared types in `src/types.ts`, and hooks in `src/components/hooks/`.
-- Use Zod to validate API input. Use `cn()` from `@/lib/utils` for conditional Tailwind classes rather than manually concatenating class strings.
-- shadcn/ui components live in `src/components/ui/`; add new components with `npx shadcn@latest add <name>`.
+## Project Structure
 
-## Authentication, data, and secrets
+Place route views in `src/pages/` and API endpoints in `src/pages/api/`; export uppercase Astro handlers such as `POST`. Use `src/layouts/` for page shells, `src/components/` for Astro and React UI, `src/lib/` for reusable server/business helpers, and `src/styles/global.css` for global styling. Use the `@/*` alias for `src/*`. Keep product decisions in `context/foundation/`; never edit `context/archive/`.
 
-- `src/lib/supabase.ts` creates the cookie-backed Supabase SSR client. `src/middleware.ts` resolves the authenticated contractor and protects contractor routes.
-- Keep `SUPABASE_URL` and `SUPABASE_KEY` server-only. Never commit `.env` or `.dev.vars` files, expose secrets to the browser, or log PINs/tokens.
-- Add Supabase schema changes as timestamped SQL migrations in `supabase/migrations/` using `YYYYMMDDHHmmss_short_description.sql`.
-- Enable RLS on every new table and write narrowly scoped policies for each operation and role. Enforce ownership and offer-link access on the server/database; do not rely on UI visibility as authorization.
+## Build, Test, and Development Commands
 
-## Commands
+Use the scripts declared in @package.json for development, linting, building, previewing, formatting, and smoke testing. For changes to routes, authentication, deployment, or dependencies, run `npm run lint` and `npm run build` before handoff. When a configured Supabase environment is available, also run `npm run smoke` after authentication, deployment, or dependency changes.
 
-- `npm run dev` — local development server.
-- `npm run build` — production SSR build.
-- `npm run preview` — preview the production build.
-- `npm run lint` / `npm run lint:fix` — lint and optionally fix source files.
-- `npm run format` — format with Prettier, Astro, and Tailwind plugins.
-- `npm run smoke` — run the auth-flow smoke test against a running server (`BASE_URL`, default `http://localhost:4321`).
+## Style, Testing, and Delivery
 
-Use Node `22.14.0` from `.nvmrc`. Before handing off a substantive change, run the narrowest relevant checks; for broad app changes, run `npm run lint` and `npm run build`. Run `npm run smoke` when changing authentication, deployment, or dependency behavior and a configured Supabase environment is available.
+Match existing `PascalCase.tsx` React components and `kebab-case` route files. Formatting, strict TypeScript, and lint rules are defined in @tsconfig.json and @eslint.config.js. Do not add ESLint disable comments unless the pull request explains why the rule cannot be satisfied. Tests currently consist of @scripts/smoke.mjs; when adding an API route or authentication flow, extend that script or add a test covering both success and failure behavior.
 
-## Delivery conventions
-
-- Keep changes focused and preserve existing user work.
-- CI targets `master` and runs linting, Astro type checks, builds, and a Supabase-backed smoke test. Keep these checks passing.
-- `context/` holds project decisions and workflow artifacts. Do not write to `context/archive/`; archived changes are immutable. Create a new change instead.
-- Treat generated and local-only artifacts (`node_modules/`, `dist/`, `.astro/`, `.env`, `.dev.vars`, `.wrangler/`) as untracked local state.
+Use Conventional Commit-style prefixes shown in history, such as `feat(starter):` and `chore(wrangler):`. Each pull request should implement one user-visible feature or one maintenance concern; explain authorization changes and include screenshots for UI work. CI requirements are defined in @.github/workflows/ci.yml.
