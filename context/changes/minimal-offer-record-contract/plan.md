@@ -203,10 +203,10 @@ Migracja jest addytywna: środowisko nie ma dotychczasowych danych domenowych. N
 
 #### Automated
 
-- [ ] 3.1 Test integracyjny obejmuje RLS, token, PIN i historię decyzji
-- [ ] 3.2 CI uruchamia test kontraktu z lokalnym Supabase
-- [ ] 3.3 Lint, Astro check i build przechodzą
+- [x] 3.1 Test integracyjny obejmuje RLS, token, PIN i historię decyzji
+- [x] 3.2 CI uruchamia test kontraktu z lokalnym Supabase
+- [x] 3.3 Lint, Astro check i build przechodzą
 
 #### Manual
 
-- [ ] 3.4 Zweryfikowano brak UI, tras i service-role w aplikacji
+- [x] 3.4 Zweryfikowano brak UI, tras i service-role w aplikacji
