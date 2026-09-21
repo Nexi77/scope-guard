@@ -158,6 +158,19 @@ async function run() {
   expect(sharedOffer?.id === offerA.id, "shared offer RPC must return the token's offer");
   expect(!JSON.stringify(sharedOffer).includes("pin_hash"), "shared offer RPC must not expose pin_hash");
 
+  await expectError(
+    contractorA.client.from("offer_changes").update({ status: "accepted" }).eq("id", acceptedChange),
+    "contractor directly accepts a pending change",
+  );
+  await expectError(
+    contractorA.client.from("change_decisions").insert({
+      contractor_id: contractorA.id,
+      offer_change_id: acceptedChange,
+      outcome: "accepted",
+    }),
+    "contractor directly creates a customer decision",
+  );
+
   const { data: revokedOfferResult, error: revokedOfferError } = await anonymous.rpc("get_shared_offer", {
     p_share_token: revokedOffer.share_token,
   });
@@ -204,6 +217,10 @@ async function run() {
   expect(
     repeatedDecision.decided_at === acceptedDecision.decided_at && repeatedDecision.outcome === "accepted",
     "repeating a decision must preserve its original result",
+  );
+  await expectError(
+    contractorA.client.from("offer_changes").delete().eq("id", acceptedChange),
+    "contractor directly deletes an accepted change",
   );
 
   const { data: acceptedDecisionRows, error: acceptedDecisionRowsError } = await contractorA.client
