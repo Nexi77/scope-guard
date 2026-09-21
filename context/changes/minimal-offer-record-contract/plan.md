@@ -180,24 +180,24 @@ Migracja jest addytywna: środowisko nie ma dotychczasowych danych domenowych. N
 
 #### Automated
 
-- [x] 1.1 Lokalna migracja stosuje kontrakt danych od zera
-- [x] 1.2 Ograniczenia modelu odrzucają niespójne dane
+- [x] 1.1 Lokalna migracja stosuje kontrakt danych od zera — cd5bd60
+- [x] 1.2 Ograniczenia modelu odrzucają niespójne dane — cd5bd60
 
 #### Manual
 
-- [x] 1.3 Zweryfikowano tabele, indeksy, RLS i brak surowego PIN-u
+- [x] 1.3 Zweryfikowano tabele, indeksy, RLS i brak surowego PIN-u — cd5bd60
 
 ### Phase 2: Publiczny kontrakt odczytu i decyzji
 
 #### Automated
 
-- [ ] 2.1 RPC odczytu izoluje ofertę i ukrywa dane wrażliwe
-- [ ] 2.2 RPC decyzji odrzuca zły PIN i unieważniony token
-- [ ] 2.3 RPC decyzji jest idempotentne i zachowuje aktywny zakres po odrzuceniu
+- [x] 2.1 RPC odczytu izoluje ofertę i ukrywa dane wrażliwe
+- [x] 2.2 RPC decyzji odrzuca zły PIN i unieważniony token
+- [x] 2.3 RPC decyzji jest idempotentne i zachowuje aktywny zakres po odrzuceniu
 
 #### Manual
 
-- [ ] 2.4 Zweryfikowano minimalne granty i bezpieczną projekcję RPC
+- [x] 2.4 Zweryfikowano minimalne granty i bezpieczną projekcję RPC
 
 ### Phase 3: Testy kontraktu i CI
 
