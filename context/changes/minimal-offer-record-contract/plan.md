@@ -180,12 +180,12 @@ Migracja jest addytywna: środowisko nie ma dotychczasowych danych domenowych. N
 
 #### Automated
 
-- [ ] 1.1 Lokalna migracja stosuje kontrakt danych od zera
-- [ ] 1.2 Ograniczenia modelu odrzucają niespójne dane
+- [x] 1.1 Lokalna migracja stosuje kontrakt danych od zera
+- [x] 1.2 Ograniczenia modelu odrzucają niespójne dane
 
 #### Manual
 
-- [ ] 1.3 Zweryfikowano tabele, indeksy, RLS i brak surowego PIN-u
+- [x] 1.3 Zweryfikowano tabele, indeksy, RLS i brak surowego PIN-u
 
 ### Phase 2: Publiczny kontrakt odczytu i decyzji
 
