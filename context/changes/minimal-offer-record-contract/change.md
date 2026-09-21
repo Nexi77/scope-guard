@@ -1,7 +1,7 @@
 ---
 change_id: minimal-offer-record-contract
 title: Minimal offer record contract for F-01
-status: implementing
+status: implemented
 created: 2026-09-21
 updated: 2026-09-21
 archived_at: null
