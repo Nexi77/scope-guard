@@ -191,13 +191,13 @@ Migracja jest addytywna: środowisko nie ma dotychczasowych danych domenowych. N
 
 #### Automated
 
-- [x] 2.1 RPC odczytu izoluje ofertę i ukrywa dane wrażliwe
-- [x] 2.2 RPC decyzji odrzuca zły PIN i unieważniony token
-- [x] 2.3 RPC decyzji jest idempotentne i zachowuje aktywny zakres po odrzuceniu
+- [x] 2.1 RPC odczytu izoluje ofertę i ukrywa dane wrażliwe — 9dec304
+- [x] 2.2 RPC decyzji odrzuca zły PIN i unieważniony token — 9dec304
+- [x] 2.3 RPC decyzji jest idempotentne i zachowuje aktywny zakres po odrzuceniu — 9dec304
 
 #### Manual
 
-- [x] 2.4 Zweryfikowano minimalne granty i bezpieczną projekcję RPC
+- [x] 2.4 Zweryfikowano minimalne granty i bezpieczną projekcję RPC — 9dec304
 
 ### Phase 3: Testy kontraktu i CI
 
