@@ -234,44 +234,44 @@ The schema is additive and contains no existing production domain records requir
 
 #### Automated
 
-- [x] 1.1 Shared Input, Label, Textarea, Select, and Field primitives build and lint — c53767e
-- [x] 1.2 Auth forms retain their current validation and route contracts — c53767e
+- [x] 1.1 Shared Input, Label, Textarea, Select, and Field primitives build and lint — af9bb99
+- [x] 1.2 Auth forms retain their current validation and route contracts — af9bb99
 
 #### Manual
 
-- [x] 1.3 Auth forms remain accessible and responsive in both themes — c53767e
+- [x] 1.3 Auth forms remain accessible and responsive in both themes — af9bb99
 
 ### Phase 2: Atomic customer and offer creation contract
 
 #### Automated
 
-- [x] 2.1 Creation RPC applies and creates valid customer offers atomically — fddea7e
-- [x] 2.2 Contract tests enforce ownership, duplicate confirmation, and rollback behavior — fddea7e
+- [x] 2.1 Creation RPC applies and creates valid customer offers atomically — af9bb99
+- [x] 2.2 Contract tests enforce ownership, duplicate confirmation, and rollback behavior — af9bb99
 
 #### Manual
 
-- [x] 2.3 RPC grants and database exposure remain limited to authenticated creation — fddea7e
+- [x] 2.3 RPC grants and database exposure remain limited to authenticated creation — af9bb99
 
 ### Phase 3: Protected contractor creation flow
 
 #### Automated
 
-- [x] 3.1 Dashboard form and offer endpoint pass type and lint checks — 018e116
-- [x] 3.2 Authenticated offer creation supports new and existing customers — 018e116
-- [x] 3.3 Invalid, duplicate, unauthenticated, and failed requests leave no partial records — 018e116
+- [x] 3.1 Dashboard form and offer endpoint pass type and lint checks — af9bb99
+- [x] 3.2 Authenticated offer creation supports new and existing customers — af9bb99
+- [x] 3.3 Invalid, duplicate, unauthenticated, and failed requests leave no partial records — af9bb99
 
 #### Manual
 
-- [x] 3.4 Contractor can complete accessible new and existing customer paths across viewports — 018e116
-- [x] 3.5 PLN conversion and today-or-later deadline validation behave correctly — 018e116
+- [x] 3.4 Contractor can complete accessible new and existing customer paths across viewports — af9bb99
+- [x] 3.5 PLN conversion and today-or-later deadline validation behave correctly — af9bb99
 
 ### Phase 4: End-to-end verification and delivery checks
 
 #### Automated
 
-- [x] 4.1 Lint, build, and offer contract checks pass — 03952a6
-- [x] 4.2 Smoke checks cover protected offer creation on local Supabase — 03952a6
+- [x] 4.1 Lint, build, and offer contract checks pass — af9bb99
+- [x] 4.2 Smoke checks cover protected offer creation on local Supabase — af9bb99
 
 #### Manual
 
-- [x] 4.3 Shared form primitives and offer creation work across supported browsers — 03952a6
+- [x] 4.3 Shared form primitives and offer creation work across supported browsers — af9bb99

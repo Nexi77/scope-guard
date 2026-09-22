@@ -42,7 +42,7 @@ ScopeGuard gathers agreements about changes raised during a renovation or instal
 | ID | Change ID | Outcome (user can …) | Prerequisites | PRD refs | Status |
 | --- | --- | --- | --- | --- | --- |
 | F-01 | minimal-offer-record-contract | (foundation) durable offer, change, and decision records safely separate contractor and customer access | — | FR-001–FR-008; Non-Functional Requirements | done |
-| S-01 | create-client-offer | create a customer and an offer assigned to that customer | F-01 | FR-001 | in-progress |
+| S-01 | create-client-offer | create a customer and an offer assigned to that customer | F-01 | FR-001 | done |
 | S-02 | browse-client-offers | browse a customer's offers with status, price, and delivery deadline | S-01 | FR-002 | proposed |
 | S-03 | manage-offer-pin | set or reset a PIN for a customer or offer | S-01 | FR-008 | proposed |
 | S-04 | record-offer-change | add a change, describe it, and classify its price and deadline impact | S-01 | FR-003 | proposed |
@@ -99,7 +99,7 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **Blockers:** —
 - **Unknowns:** —
 - **Risk:** This starts every later capability; keep its scope narrow so customer administration does not grow beyond offer grouping.
-- **Status:** in-progress
+- **Status:** done
 
 ### S-02: Browse a customer's offers
 
@@ -205,3 +205,4 @@ None — the PRD has no open questions relevant to sequencing.
 ## Done
 
 - **F-01: (foundation) durable offer, change, and customer-decision records have the minimal ownership and access boundaries needed to safely execute the first flows.** — Archived 2026-09-22 → `context/archive/2026-09-21-minimal-offer-record-contract/`. Lesson: —.
+- **S-01: contractor can create a customer and an offer assigned to that customer with the original scope.** — Archived 2026-09-22 → `context/archive/2026-09-22-create-client-offer/`. Lesson: —.
