@@ -1,0 +1,102 @@
+---
+import { AccountMenu } from "@/components/dashboard/AccountMenu";
+import Layout from "@/layouts/Layout.astro";
+import { createClient } from "@/lib/supabase";
+
+const { user } = Astro.locals;
+const supabase = createClient(Astro.request.headers, Astro.cookies);
+const { data: offers, error: offersError } = supabase
+  ? await supabase
+      .from("offers")
+      .select("id, base_scope, base_amount_minor, currency_code, base_deadline, status, customer:customers(name)")
+      .order("created_at", { ascending: false })
+  : { data: [], error: null };
+
+function formatAmount(amount: unknown, currency: unknown) {
+  const numericAmount = typeof amount === "number" || typeof amount === "string" ? Number(amount) : 0;
+  const currencyCode = typeof currency === "string" && /^[A-Z]{3}$/.test(currency) ? currency : "PLN";
+  return new Intl.NumberFormat("pl-PL", { style: "currency", currency: currencyCode }).format(numericAmount / 100);
+}
+---
+
+<Layout title="Offers · ScopeGuard">
+  <div class="min-h-screen bg-background">
+    <header class="border-b bg-background">
+      <div class="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
+        <a
+          href="/dashboard"
+          class="text-lg font-semibold tracking-tight focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+        >
+          ScopeGuard
+        </a>
+        <AccountMenu client:load email={user?.email ?? "Account"} />
+      </div>
+    </header>
+    <main class="mx-auto w-full max-w-4xl px-4 py-10 sm:px-6 sm:py-14">
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div class="space-y-2">
+          <p class="text-muted-foreground text-sm font-medium">Your workspace</p>
+          <h1 class="text-3xl font-semibold tracking-tight">Offers</h1>
+          <p class="text-muted-foreground max-w-2xl">
+            Create and keep track of the original agreements you share with customers.
+          </p>
+        </div>
+        <a
+          href="/offers/new"
+          class="bg-primary text-primary-foreground focus-visible:ring-ring inline-flex h-10 items-center justify-center rounded-md px-6 text-sm font-medium shadow-xs transition-all hover:bg-primary/90 focus-visible:ring-[3px] focus-visible:outline-none"
+        >
+          Create offer
+        </a>
+      </div>
+      {offersError ? (
+        <p
+          class="border-destructive/30 bg-destructive/10 text-destructive mt-8 rounded-md border px-4 py-3 text-sm"
+          role="alert"
+        >
+          Your offers could not be loaded. Refresh the page and try again.
+        </p>
+      ) : offers.length ? (
+        <ul class="mt-8 space-y-3" aria-label="Your offers">
+          {offers.map((offer) => (
+            <li class="bg-card rounded-xl border p-5 shadow-sm">
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p class="font-semibold">{offer.customer.name}</p>
+                  <p class="text-muted-foreground mt-1 line-clamp-2 text-sm">{offer.base_scope}</p>
+                </div>
+                <span class="bg-secondary text-secondary-foreground w-fit rounded-full px-2.5 py-1 text-xs font-medium capitalize">
+                  {offer.status}
+                </span>
+              </div>
+              <dl class="text-muted-foreground mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm">
+                <div>
+                  <dt class="sr-only">Price</dt>
+                  <dd>{formatAmount(offer.base_amount_minor, offer.currency_code)}</dd>
+                </div>
+                <div>
+                  <dt class="sr-only">Deadline</dt>
+                  <dd>Due {offer.base_deadline}</dd>
+                </div>
+              </dl>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <section class="bg-card mt-8 rounded-xl border p-6 shadow-sm sm:p-8" aria-labelledby="empty-offers-title">
+          <h2 id="empty-offers-title" class="text-xl font-semibold">
+            Create your first offer
+          </h2>
+          <p class="text-muted-foreground mt-2 max-w-xl">
+            You have no offers yet. Start by recording the customer, original scope, price, and deadline you agreed.
+          </p>
+          <a
+            href="/offers/new"
+            class="bg-primary text-primary-foreground focus-visible:ring-ring mt-6 inline-flex h-10 items-center justify-center rounded-md px-6 text-sm font-medium shadow-xs transition-all hover:bg-primary/90 focus-visible:ring-[3px] focus-visible:outline-none"
+          >
+            Create your first offer
+          </a>
+        </section>
+      )}
+    </main>
+  </div>
+</Layout>

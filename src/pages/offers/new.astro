@@ -1,0 +1,54 @@
+---
+import { AccountMenu } from "@/components/dashboard/AccountMenu";
+import CreateOfferForm from "@/components/offers/CreateOfferForm";
+import Layout from "@/layouts/Layout.astro";
+import { createClient } from "@/lib/supabase";
+
+const { user } = Astro.locals;
+const supabase = createClient(Astro.request.headers, Astro.cookies);
+const { data: customers, error: customersError } = supabase
+  ? await supabase.from("customers").select("id, name").order("name", { ascending: true })
+  : { data: [], error: null };
+const error = Astro.url.searchParams.get("error");
+const created = Astro.url.searchParams.get("created") === "1";
+---
+
+<Layout title="Create offer · ScopeGuard">
+  <div class="min-h-screen bg-background">
+    <header class="border-b bg-background">
+      <div class="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
+        <a
+          href="/dashboard"
+          class="text-lg font-semibold tracking-tight focus-visible:ring-ring focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+        >
+          ScopeGuard
+        </a>
+        <AccountMenu client:load email={user?.email ?? "Account"} />
+      </div>
+    </header>
+    <main class="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6 sm:py-14">
+      <a
+        href="/offers"
+        class="text-muted-foreground hover:text-foreground focus-visible:ring-ring inline-flex text-sm font-medium underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:outline-none"
+      >
+        ← Back to offers
+      </a>
+      <div class="mb-8 mt-5 space-y-2">
+        <h1 class="text-3xl font-semibold tracking-tight">Create an offer</h1>
+        <p class="text-muted-foreground max-w-2xl">
+          Capture the original scope, price, deadline, and customer before changes begin.
+        </p>
+      </div>
+      {customersError ? (
+        <p
+          class="border-destructive/30 bg-destructive/10 text-destructive rounded-md border px-4 py-3 text-sm"
+          role="alert"
+        >
+          Your customers could not be loaded. Refresh the page and try again.
+        </p>
+      ) : (
+        <CreateOfferForm client:load customers={customers} serverError={error} created={created} />
+      )}
+    </main>
+  </div>
+</Layout>

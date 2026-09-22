@@ -245,25 +245,25 @@ The schema is additive and contains no existing production domain records requir
 
 #### Automated
 
-- [x] 2.1 Creation RPC applies and creates valid customer offers atomically
-- [x] 2.2 Contract tests enforce ownership, duplicate confirmation, and rollback behavior
+- [x] 2.1 Creation RPC applies and creates valid customer offers atomically — fddea7e
+- [x] 2.2 Contract tests enforce ownership, duplicate confirmation, and rollback behavior — fddea7e
 
 #### Manual
 
-- [x] 2.3 RPC grants and database exposure remain limited to authenticated creation
+- [x] 2.3 RPC grants and database exposure remain limited to authenticated creation — fddea7e
 
 ### Phase 3: Protected contractor creation flow
 
 #### Automated
 
-- [ ] 3.1 Dashboard form and offer endpoint pass type and lint checks
-- [ ] 3.2 Authenticated offer creation supports new and existing customers
-- [ ] 3.3 Invalid, duplicate, unauthenticated, and failed requests leave no partial records
+- [x] 3.1 Dashboard form and offer endpoint pass type and lint checks
+- [x] 3.2 Authenticated offer creation supports new and existing customers
+- [x] 3.3 Invalid, duplicate, unauthenticated, and failed requests leave no partial records
 
 #### Manual
 
-- [ ] 3.4 Contractor can complete accessible new and existing customer paths across viewports
-- [ ] 3.5 PLN conversion and today-or-later deadline validation behave correctly
+- [x] 3.4 Contractor can complete accessible new and existing customer paths across viewports
+- [x] 3.5 PLN conversion and today-or-later deadline validation behave correctly
 
 ### Phase 4: End-to-end verification and delivery checks
 

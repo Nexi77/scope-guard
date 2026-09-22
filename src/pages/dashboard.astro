@@ -3,9 +3,10 @@ import Layout from "@/layouts/Layout.astro";
 import { AccountMenu } from "@/components/dashboard/AccountMenu";
 
 const { user } = Astro.locals;
+const fullName = typeof user?.user_metadata.full_name === "string" ? user.user_metadata.full_name : null;
 ---
 
-<Layout title="ScopeGuard">
+<Layout title="Dashboard · ScopeGuard">
   <div class="min-h-screen bg-background">
     <header class="border-b bg-background">
       <div class="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
@@ -15,8 +16,26 @@ const { user } = Astro.locals;
         >
           ScopeGuard
         </a>
-        <AccountMenu client:load email={user?.email ?? "Account"} />
+        <AccountMenu client:load email={user?.email ?? "Account"} showEmail />
       </div>
     </header>
+
+    <main class="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6 sm:py-14">
+      <section class="bg-card max-w-2xl rounded-xl border p-6 shadow-sm sm:p-8" aria-labelledby="dashboard-title">
+        <p class="text-muted-foreground text-sm font-medium">{fullName ?? user?.email ?? "Contractor"}</p>
+        <h1 id="dashboard-title" class="mt-2 text-3xl font-semibold tracking-tight">
+          Welcome to ScopeGuard
+        </h1>
+        <p class="text-muted-foreground mt-3 max-w-xl">
+          Keep every customer offer and its agreed scope in one place before changes begin.
+        </p>
+        <a
+          href="/offers"
+          class="bg-primary text-primary-foreground focus-visible:ring-ring mt-6 inline-flex h-10 items-center justify-center rounded-md px-6 text-sm font-medium shadow-xs transition-all hover:bg-primary/90 focus-visible:ring-[3px] focus-visible:outline-none"
+        >
+          View offers
+        </a>
+      </section>
+    </main>
   </div>
 </Layout>
