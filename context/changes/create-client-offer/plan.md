@@ -269,9 +269,9 @@ The schema is additive and contains no existing production domain records requir
 
 #### Automated
 
-- [x] 4.1 Lint, build, and offer contract checks pass
-- [x] 4.2 Smoke checks cover protected offer creation on local Supabase
+- [x] 4.1 Lint, build, and offer contract checks pass — 03952a6
+- [x] 4.2 Smoke checks cover protected offer creation on local Supabase — 03952a6
 
 #### Manual
 
-- [x] 4.3 Shared form primitives and offer creation work across supported browsers
+- [x] 4.3 Shared form primitives and offer creation work across supported browsers — 03952a6
