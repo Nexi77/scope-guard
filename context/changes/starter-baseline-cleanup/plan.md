@@ -162,10 +162,10 @@ Changing `supabase/config.toml`'s `project_id` creates a new local Supabase name
 
 #### Automated
 
-- [x] 2.1 Starter residue and active project metadata are cleaned without breaking shared runtime configuration
-- [x] 2.2 Smoke, lint, Astro type checks, and production build pass with the revised route contract
-- [x] 2.3 CI preview readiness targets a retained route and the smoke job remains runnable
+- [x] 2.1 Starter residue and active project metadata are cleaned without breaking shared runtime configuration — ff35cff
+- [x] 2.2 Smoke, lint, Astro type checks, and production build pass with the revised route contract — ff35cff
+- [x] 2.3 CI preview readiness targets a retained route and the smoke job remains runnable — ff35cff
 
 #### Manual
 
-- [x] 2.4 ScopeGuard documentation and missing-configuration behavior match the cleaned baseline
+- [x] 2.4 ScopeGuard documentation and missing-configuration behavior match the cleaned baseline — ff35cff
