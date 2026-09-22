@@ -256,22 +256,22 @@ The schema is additive and contains no existing production domain records requir
 
 #### Automated
 
-- [x] 3.1 Dashboard form and offer endpoint pass type and lint checks
-- [x] 3.2 Authenticated offer creation supports new and existing customers
-- [x] 3.3 Invalid, duplicate, unauthenticated, and failed requests leave no partial records
+- [x] 3.1 Dashboard form and offer endpoint pass type and lint checks — 018e116
+- [x] 3.2 Authenticated offer creation supports new and existing customers — 018e116
+- [x] 3.3 Invalid, duplicate, unauthenticated, and failed requests leave no partial records — 018e116
 
 #### Manual
 
-- [x] 3.4 Contractor can complete accessible new and existing customer paths across viewports
-- [x] 3.5 PLN conversion and today-or-later deadline validation behave correctly
+- [x] 3.4 Contractor can complete accessible new and existing customer paths across viewports — 018e116
+- [x] 3.5 PLN conversion and today-or-later deadline validation behave correctly — 018e116
 
 ### Phase 4: End-to-end verification and delivery checks
 
 #### Automated
 
-- [ ] 4.1 Lint, build, and offer contract checks pass
-- [ ] 4.2 Smoke checks cover protected offer creation on local Supabase
+- [x] 4.1 Lint, build, and offer contract checks pass
+- [x] 4.2 Smoke checks cover protected offer creation on local Supabase
 
 #### Manual
 
-- [ ] 4.3 Shared form primitives and offer creation work across supported browsers
+- [x] 4.3 Shared form primitives and offer creation work across supported browsers

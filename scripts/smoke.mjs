@@ -32,12 +32,36 @@ async function request(path, { method = "GET", form } = {}) {
     body: form ? new URLSearchParams(form).toString() : undefined,
   });
   storeCookies(response);
-  return { status: response.status, location: response.headers.get("location") ?? "" };
+  return {
+    status: response.status,
+    location: response.headers.get("location") ?? "",
+    body: await response.text(),
+  };
 }
+
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+const customerName = `Smoke customer ${Date.now()}`;
 
 const steps = [
   ["root redirects to dashboard", () => request("/"), { status: 302, location: "/dashboard" }],
   ["dashboard redirects anonymous user", () => request("/dashboard"), { status: 302, location: "/auth/signin" }],
+  [
+    "offer creation redirects anonymous user",
+    () =>
+      request("/api/offers", {
+        method: "POST",
+        form: {
+          customer_name: customerName,
+          base_scope: "Anonymous smoke scope",
+          base_amount: "1.00",
+          base_deadline: today(),
+        },
+      }),
+    { status: 302, location: "/auth/signin" },
+  ],
   [
     "signup creates account",
     () => request("/api/auth/signup", { method: "POST", form: { email, password } }),
@@ -54,12 +78,49 @@ const steps = [
     { status: 302, location: "/dashboard" },
   ],
   ["dashboard renders for signed-in user", () => request("/dashboard"), { status: 200 }],
+  ["offers render for signed-in user", () => request("/offers"), { status: 200 }],
+  ["offer creation form renders for signed-in user", () => request("/offers/new"), { status: 200 }],
+  [
+    "offer creation rejects invalid submission",
+    () =>
+      request("/api/offers", {
+        method: "POST",
+        form: {
+          customer_name: customerName,
+          base_scope: "",
+          base_amount: "not-a-price",
+          base_deadline: "",
+        },
+      }),
+    { status: 302, location: "/offers/new?error=" },
+  ],
+  [
+    "offer creation redirects to confirmation",
+    () =>
+      request("/api/offers", {
+        method: "POST",
+        form: {
+          customer_name: customerName,
+          confirm_duplicate: "false",
+          base_scope: "Smoke-tested original scope",
+          base_amount: "1,250.00",
+          base_deadline: today(),
+        },
+      }),
+    { status: 302, location: "/offers/new?created=1" },
+  ],
+  [
+    "offer creation confirmation renders",
+    () => request("/offers/new?created=1"),
+    { status: 200, body: "Offer created" },
+  ],
   [
     "signout clears session",
     () => request("/api/auth/signout", { method: "POST" }),
     { status: 302, location: "/auth/signin" },
   ],
   ["dashboard redirects after signout", () => request("/dashboard"), { status: 302, location: "/auth/signin" }],
+  ["offers redirect after signout", () => request("/offers"), { status: 302, location: "/auth/signin" }],
 ];
 
 let failed = 0;
@@ -67,7 +128,8 @@ for (const [name, run, expected] of steps) {
   const actual = await run();
   const ok =
     actual.status === expected.status &&
-    (expected.location === undefined || actual.location.startsWith(expected.location));
+    (expected.location === undefined || actual.location.startsWith(expected.location)) &&
+    (expected.body === undefined || actual.body.includes(expected.body));
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}  -> ${actual.status} ${actual.location}`);
   if (!ok) {
     failed++;
