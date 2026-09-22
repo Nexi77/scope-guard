@@ -15,6 +15,10 @@ const { title = "ScopeGuard" } = Astro.props;
     <meta name="viewport" content="width=device-width" />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <title>{title}</title>
+    <script is:inline>
+      const savedTheme = localStorage.getItem("scopeguard-theme");
+      document.documentElement.classList.toggle("dark", savedTheme === "dark");
+    </script>
   </head>
   <body>
     <slot />
