@@ -180,33 +180,33 @@ Migracja jest addytywna: środowisko nie ma dotychczasowych danych domenowych. N
 
 #### Automated
 
-- [x] 1.1 Lokalna migracja stosuje kontrakt danych od zera — cd5bd60
-- [x] 1.2 Ograniczenia modelu odrzucają niespójne dane — cd5bd60
+- [x] 1.1 Lokalna migracja stosuje kontrakt danych od zera — 848654b
+- [x] 1.2 Ograniczenia modelu odrzucają niespójne dane — 848654b
 
 #### Manual
 
-- [x] 1.3 Zweryfikowano tabele, indeksy, RLS i brak surowego PIN-u — cd5bd60
+- [x] 1.3 Zweryfikowano tabele, indeksy, RLS i brak surowego PIN-u — 848654b
 
 ### Phase 2: Publiczny kontrakt odczytu i decyzji
 
 #### Automated
 
-- [x] 2.1 RPC odczytu izoluje ofertę i ukrywa dane wrażliwe — 9dec304
-- [x] 2.2 RPC decyzji odrzuca zły PIN i unieważniony token — 9dec304
-- [x] 2.3 RPC decyzji jest idempotentne i zachowuje aktywny zakres po odrzuceniu — 9dec304
+- [x] 2.1 RPC odczytu izoluje ofertę i ukrywa dane wrażliwe — 848654b
+- [x] 2.2 RPC decyzji odrzuca zły PIN i unieważniony token — 848654b
+- [x] 2.3 RPC decyzji jest idempotentne i zachowuje aktywny zakres po odrzuceniu — 848654b
 
 #### Manual
 
-- [x] 2.4 Zweryfikowano minimalne granty i bezpieczną projekcję RPC — 9dec304
+- [x] 2.4 Zweryfikowano minimalne granty i bezpieczną projekcję RPC — 848654b
 
 ### Phase 3: Testy kontraktu i CI
 
 #### Automated
 
-- [x] 3.1 Test integracyjny obejmuje RLS, token, PIN i historię decyzji — 5de4acd
-- [x] 3.2 CI uruchamia test kontraktu z lokalnym Supabase — 5de4acd
-- [x] 3.3 Lint, Astro check i build przechodzą — 5de4acd
+- [x] 3.1 Test integracyjny obejmuje RLS, token, PIN i historię decyzji — 848654b
+- [x] 3.2 CI uruchamia test kontraktu z lokalnym Supabase — 848654b
+- [x] 3.3 Lint, Astro check i build przechodzą — 848654b
 
 #### Manual
 
-- [x] 3.4 Zweryfikowano brak UI, tras i service-role w aplikacji — 5de4acd
+- [x] 3.4 Zweryfikowano brak UI, tras i service-role w aplikacji — 848654b

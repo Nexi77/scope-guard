@@ -3,7 +3,7 @@ project: ScopeGuard
 version: 1
 status: draft
 created: 2026-09-21
-updated: 2026-09-21
+updated: 2026-09-22
 prd_version: 1
 main_goal: speed
 top_blocker: time
@@ -41,7 +41,7 @@ ScopeGuard gathers agreements about changes raised during a renovation or instal
 
 | ID | Change ID | Outcome (user can …) | Prerequisites | PRD refs | Status |
 | --- | --- | --- | --- | --- | --- |
-| F-01 | minimal-offer-record-contract | (foundation) durable offer, change, and decision records safely separate contractor and customer access | — | FR-001–FR-008; Non-Functional Requirements | in-progress |
+| F-01 | minimal-offer-record-contract | (foundation) durable offer, change, and decision records safely separate contractor and customer access | — | FR-001–FR-008; Non-Functional Requirements | done |
 | S-01 | create-client-offer | create a customer and an offer assigned to that customer | F-01 | FR-001 | proposed |
 | S-02 | browse-client-offers | browse a customer's offers with status, price, and delivery deadline | S-01 | FR-002 | proposed |
 | S-03 | manage-offer-pin | set or reset a PIN for a customer or offer | S-01 | FR-008 | proposed |
@@ -85,7 +85,7 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **Blockers:** —
 - **Unknowns:** —
 - **Risk:** This is the smallest shared contract needed to store and verify a decision; modelling too much upfront would delay the first flow.
-- **Status:** in-progress
+- **Status:** done
 
 ## Slices
 
@@ -203,3 +203,5 @@ None — the PRD has no open questions relevant to sequencing.
 ## Milestone History
 
 ## Done
+
+- **F-01: (foundation) durable offer, change, and customer-decision records have the minimal ownership and access boundaries needed to safely execute the first flows.** — Archived 2026-09-22 → `context/archive/2026-09-21-minimal-offer-record-contract/`. Lesson: —.
