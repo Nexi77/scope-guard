@@ -1,9 +1,6 @@
 import type { ReactNode } from "react";
-import { CircleAlert } from "lucide-react";
-import { cn } from "@/lib/utils";
-
-const inputBase =
-  "w-full rounded-lg border border-input bg-background px-3 py-2 pl-10 text-foreground placeholder:text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card";
+import { Field } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 
 interface FormFieldProps {
   id: string;
@@ -33,33 +30,26 @@ export function FormField({
   endContent,
 }: FormFieldProps) {
   return (
-    <div>
-      <label htmlFor={id} className="text-foreground mb-1 block text-sm font-medium">
-        {label}
-      </label>
-      <div className="relative">
-        <span className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2">{icon}</span>
-        <input
-          id={id}
-          name={name ?? id}
-          type={type}
-          value={value}
-          onChange={(e) => {
-            onChange(e.target.value);
-          }}
-          placeholder={placeholder}
-          className={cn(inputBase, error && "border-destructive/70 focus-visible:ring-destructive")}
-        />
-        {endContent}
-      </div>
-      {error ? (
-        <p className="text-destructive mt-1 flex items-center gap-1 text-xs">
-          <CircleAlert className="size-3" />
-          {error}
-        </p>
-      ) : (
-        hint
+    <Field id={id} label={label} hint={hint} error={error}>
+      {(controlProps) => (
+        <div className="relative">
+          <span className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2">
+            {icon}
+          </span>
+          <Input
+            {...controlProps}
+            name={name ?? id}
+            type={type}
+            value={value}
+            onChange={(event) => {
+              onChange(event.target.value);
+            }}
+            placeholder={placeholder}
+            className="h-11 rounded-lg pl-10"
+          />
+          {endContent}
+        </div>
       )}
-    </div>
+    </Field>
   );
 }

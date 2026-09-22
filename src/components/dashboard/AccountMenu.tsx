@@ -14,13 +14,14 @@ import {
 
 interface AccountMenuProps {
   email: string;
+  showEmail?: boolean;
 }
 
 function getInitials(email: string) {
   return email.slice(0, 2).toUpperCase();
 }
 
-export function AccountMenu({ email }: AccountMenuProps) {
+export function AccountMenu({ email, showEmail = false }: AccountMenuProps) {
   const [isDark, setIsDark] = useState(
     () => typeof document !== "undefined" && document.documentElement.classList.contains("dark"),
   );
@@ -50,8 +51,12 @@ export function AccountMenu({ email }: AccountMenuProps) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuLabel className="text-muted-foreground truncate font-normal">{email}</DropdownMenuLabel>
-          <DropdownMenuSeparator />
+          {showEmail ? (
+            <>
+              <DropdownMenuLabel className="text-muted-foreground truncate font-normal">{email}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+            </>
+          ) : null}
           <DropdownMenuItem onSelect={toggleTheme}>
             {isDark ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
             Switch to {isDark ? "light" : "dark"} theme
