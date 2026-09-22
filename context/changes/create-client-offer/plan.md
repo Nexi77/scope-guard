@@ -13,7 +13,7 @@ Deliver the first contractor-facing ScopeGuard workflow: create an offer with it
 
 ## Desired End State
 
-A signed-in contractor can open the dashboard, choose an existing customer or enter a new customer name, supply the original scope, a decimal PLN amount, and a delivery date today or later, then create the offer. A successful submission confirms creation on the dashboard; invalid or unauthorized submissions do not create partial records or expose another contractor's customer.
+A signed-in contractor can navigate from the dashboard to a dedicated creation page, choose an existing customer or enter a new customer name, supply the original scope, a decimal PLN amount, and a delivery date today or later, then create the offer. A successful submission confirms creation on that page; invalid or unauthorized submissions do not create partial records or expose another contractor's customer.
 
 ### Key Discoveries:
 
@@ -25,14 +25,14 @@ A signed-in contractor can open the dashboard, choose an existing customer or en
 ## What We're NOT Doing
 
 - Customer accounts, contacts, CRM fields, customer administration, or a customer directory.
-- Offer detail, offer history, changes, PIN management, shared links, or customer decisions.
+- Offer browsing/listing, offer detail, offer history, changes, PIN management, shared links, or customer decisions. Offer browsing remains the separate `browse-client-offers` roadmap slice.
 - Full currency selection or currency conversion; this MVP persists PLN only.
 - Automatic merging of same-named customers or a global duplicate-customer uniqueness constraint.
 - A broad catalog of future controls such as combobox, checkbox, radio-group, or calendar/date-picker components.
 
 ## Implementation Approach
 
-First establish the reusable form baseline needed by both existing auth and new product forms. Add one authenticated database RPC that either validates a selected customer belongs to the session contractor or creates a named customer, then creates the offer in the same transaction. The protected dashboard reads only that contractor's customers, renders the form, submits it to a server-side POST route, and returns to the dashboard with either a safe form error or a success confirmation.
+First establish the reusable form baseline needed by both existing auth and new product forms. Add one authenticated database RPC that either validates a selected customer belongs to the session contractor or creates a named customer, then creates the offer in the same transaction. The protected dashboard links to a dedicated creation route, which reads only that contractor's customers, renders the form, submits it to a server-side POST route, and returns safe errors or a success confirmation on that route.
 
 ## Critical Implementation Details
 
@@ -117,32 +117,32 @@ Introduce the database boundary that creates the initial offer safely for either
 
 ### Overview
 
-Turn the creation contract into a focused dashboard experience without pre-building later browsing or detail capabilities.
+Turn the creation contract into a focused protected creation experience without pre-building later browsing or detail capabilities.
 
 ### Changes Required:
 
-#### 1. Dashboard data and offer form
+#### 1. Dashboard entry and offer form
 
-**Files**: `src/pages/dashboard.astro`, `src/components/offers/CreateOfferForm.tsx`
+**Files**: `src/pages/dashboard.astro`, `src/pages/offers/new.astro`, `src/components/offers/CreateOfferForm.tsx`
 
-**Intent**: Make the authenticated dashboard the entry point for creating the first customer offer, using the shared form system and only the current contractor's customer records.
+**Intent**: Make the authenticated dashboard link to a focused creation page for the first customer offer, using the shared form system and only the current contractor's customer records.
 
-**Contract**: The server page loads `id` and `name` for the session contractor through the cookie-aware client and supplies them to a client form. The form offers an existing-customer Select and a new-customer path, customer name, original-scope Textarea, decimal PLN Input, and native date Input. Before submitting a matching new name, it presents the explicit choices to reuse that customer or proceed as a distinct record. Client validation gives immediate feedback; the server remains authoritative. The dashboard renders a concise success confirmation and a create-another action after creation, without exposing a new offer detail/history view.
+**Contract**: The dashboard links to `/offers/new`; that server page loads `id` and `name` for the session contractor through the cookie-aware client and supplies them to a client form. The form offers an existing-customer Select and a new-customer path, customer name, original-scope Textarea, decimal PLN Input, and native date Input. Before submitting a matching new name, it presents the explicit choices to reuse that customer or proceed as a distinct record. Client validation gives immediate feedback; the server remains authoritative. The creation page renders a concise success confirmation and a create-another action after creation, without exposing a new offer list, detail, or history view.
 
 #### 2. Offer creation endpoint
 
 **File**: `src/pages/api/offers/index.ts`
 
-**Intent**: Accept the dashboard form submission, validate the transport format, invoke the atomic RPC through the signed-in contractor session, and redirect to safe UI states.
+**Intent**: Accept the creation-form submission, validate the transport format, invoke the atomic RPC through the signed-in contractor session, and redirect to safe UI states.
 
-**Contract**: `POST /api/offers` requires an authenticated user and handles form data only. It trims customer/scope values, parses a human decimal PLN amount exactly into integer grosze, validates the date against the server's current date, forwards explicit duplicate intent, and maps expected validation/database failures to a dashboard error state. It never accepts `contractor_id`, PIN data, or raw database ownership values from the browser; missing configuration or an unauthenticated request must not write data.
+**Contract**: `POST /api/offers` requires an authenticated user and handles form data only. It trims customer/scope values, parses a human decimal PLN amount exactly into integer grosze, validates the date against the server's current date, forwards explicit duplicate intent, and maps expected validation/database failures to a creation-page error state. It never accepts `contractor_id`, PIN data, or raw database ownership values from the browser; missing configuration or an unauthenticated request must not write data.
 
 ### Success Criteria:
 
 #### Automated Verification:
 
-- Type and lint checks pass for the dashboard page, React form, and API route.
-- The authenticated smoke flow can create an offer with a new customer, reuse an existing customer, and receive a dashboard success redirect.
+- Type and lint checks pass for the dashboard entry, creation page, React form, and API route.
+- The authenticated smoke flow can create an offer with a new customer, reuse an existing customer, and receive a creation-page success redirect.
 - Invalid amount, past deadline, blank required field, unconfirmed duplicate, unauthenticated request, and RPC failure paths do not create an offer or orphan a customer.
 
 #### Manual Verification:
@@ -185,7 +185,7 @@ Extend the project's runnable evidence so the new authenticated flow remains pro
 
 #### Manual Verification:
 
-- A reviewer verifies auth pages did not regress after the shared-primitives migration and the dashboard flow behaves correctly in current Chrome, Safari, Edge, and Firefox.
+- A reviewer verifies auth pages did not regress after the shared-primitives migration and the dashboard entry and creation page behave correctly in current Chrome, Safari, Edge, and Firefox.
 
 ## Testing Strategy
 
@@ -197,18 +197,18 @@ Extend the project's runnable evidence so the new authenticated flow remains pro
 ### Integration Tests:
 
 - RPC atomicity, RLS ownership, existing-customer reuse, duplicate confirmation, and invalid-request rollback behavior.
-- Authenticated endpoint redirects, error paths, and successful dashboard confirmation.
+- Authenticated endpoint redirects, error paths, and successful creation-page confirmation.
 
 ### Manual Testing Steps:
 
-1. Sign in, create a new customer and offer, and confirm the dashboard success state.
+1. Sign in, navigate from the dashboard to the creation page, create a new customer and offer, and confirm the success state.
 2. Create another offer using that customer, then enter the same name as a new customer and verify the explicit reuse-or-create choice.
 3. Try invalid dates, amounts, blank fields, and expired sessions; confirm records are not partially created and errors are clear.
 4. Keyboard-test both auth and offer forms in light and dark themes at mobile and desktop widths.
 
 ## Performance Considerations
 
-The dashboard only loads the signed-in contractor's customer identifiers and names, and creation is one database RPC. No cross-contractor scan, service role, polling, or caching is introduced. A future customer directory/combobox can address large customer lists when that requirement exists.
+The creation page only loads the signed-in contractor's customer identifiers and names, and creation is one database RPC. No cross-contractor scan, service role, polling, or caching is introduced. The separate offer-browsing slice must introduce bounded retrieval before it displays a growing offer list; a future customer directory/combobox can address large customer lists when that requirement exists.
 
 ## Migration Notes
 
