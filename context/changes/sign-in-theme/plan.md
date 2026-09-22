@@ -144,21 +144,21 @@ Not applicable.
 
 #### Automated
 
-- [x] 1.1 Lint and production build pass with the compact warm token layer and sign-in shell
+- [x] 1.1 Lint and production build pass with the compact warm token layer and sign-in shell — a4ddb34
 
 #### Manual
 
-- [x] 1.2 Desktop and mobile sign-in screenshots show the intended warm visual hierarchy
-- [x] 1.3 Sign-in form action and sign-up link retain their existing destinations
+- [x] 1.2 Desktop and mobile sign-in screenshots show the intended warm visual hierarchy — a4ddb34
+- [x] 1.3 Sign-in form action and sign-up link retain their existing destinations — a4ddb34
 
 ### Phase 2: Token-driven form states
 
 #### Automated
 
-- [x] 2.1 Lint and production build pass with token-driven shared auth controls
+- [x] 2.1 Lint and production build pass with token-driven shared auth controls — a4ddb34
 
 #### Manual
 
-- [x] 2.2 Validation and server errors use the destructive token
-- [x] 2.3 Keyboard focus is visible and the screen remains readable at desktop and mobile widths
+- [x] 2.2 Validation and server errors use the destructive token — a4ddb34
+- [x] 2.3 Keyboard focus is visible and the screen remains readable at desktop and mobile widths — a4ddb34
 - [ ] 2.4 Existing pending submit state remains to be exercised against a configured authentication service

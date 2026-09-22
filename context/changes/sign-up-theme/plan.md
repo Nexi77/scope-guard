@@ -51,10 +51,10 @@ Bring the existing sign-up page into the warm semantic visual system already use
 
 #### Automated
 
-- [x] 1.1 Lint and production build pass with the tokenized sign-up surface
+- [x] 1.1 Lint and production build pass with the tokenized sign-up surface — a4ddb34
 
 #### Manual
 
-- [x] 1.2 Desktop and mobile sign-up screenshots show the warm visual hierarchy
-- [x] 1.3 Empty submission exposes all field errors without mobile overflow
-- [x] 1.4 Keyboard focus is visible on password controls, submit, and sign-in link
+- [x] 1.2 Desktop and mobile sign-up screenshots show the warm visual hierarchy — a4ddb34
+- [x] 1.3 Empty submission exposes all field errors without mobile overflow — a4ddb34
+- [x] 1.4 Keyboard focus is visible on password controls, submit, and sign-in link — a4ddb34
