@@ -7,7 +7,7 @@ interface Props {
   title?: string;
 }
 
-const { title = "10x Astro Starter" } = Astro.props;
+const { title = "ScopeGuard" } = Astro.props;
 ---
 
 <!doctype html>
@@ -21,16 +21,7 @@ const { title = "10x Astro Starter" } = Astro.props;
   <body>
     {missingConfigs.map((cfg) => (
       <Banner variant="error">
-        <strong>Uwaga:</strong> {cfg.message}
-        {cfg.docsUrl && (
-          <>
-            {" "}
-            <a href={cfg.docsUrl} target="_blank" rel="noopener noreferrer">
-              {cfg.docsLabel ?? "Dokumentacja"}
-            </a>
-            .
-          </>
-        )}
+        <strong>Configuration required:</strong> {cfg.message}
       </Banner>
     ))}
     <slot />

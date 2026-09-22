@@ -8,6 +8,8 @@ Keep the MVP focused on one contractor. Do not add customer accounts, teams, bil
 
 Keep `SUPABASE_URL` and `SUPABASE_KEY` server-only. Never commit `.env` or `.dev.vars`, log credentials or PINs, or rely on hidden UI elements for authorization. Follow @src/lib/supabase.ts and @src/middleware.ts for cookie-backed authentication and protected routes.
 
+The configured cloud Supabase project intentionally has self-service email registration disabled until the product enables it. Do not treat its `Signups not allowed for this instance` response as an application defect or enable registration to make a smoke test pass. Use local Supabase credentials for registration-flow verification instead.
+
 ## Project Structure
 
 Place route views in `src/pages/` and API endpoints in `src/pages/api/`; export uppercase Astro handlers such as `POST`. Use `src/layouts/` for page shells, `src/components/` for Astro and React UI, `src/lib/` for reusable server/business helpers, and `src/styles/global.css` for global styling. Use the `@/*` alias for `src/*`. Keep product decisions in `context/foundation/`; never edit `context/archive/`.
