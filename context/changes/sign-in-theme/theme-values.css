@@ -1,0 +1,22 @@
+/* Source: user-provided theme snippet (2026-09-22). */
+/* Deliberately reduced to roles used by the authentication UI. */
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.25 0.054 56.7);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.25 0.054 56.7);
+  --primary: oklch(0.746 0.18 56.7);
+  --primary-foreground: oklch(0.1 0.036 56.7);
+  --secondary: oklch(0.955 0.018 56.7);
+  --secondary-foreground: oklch(0.25 0.09 56.7);
+  --muted: oklch(0.97 0.004 56.7);
+  --muted-foreground: oklch(0.52 0.036 56.7);
+  --accent: oklch(0.965 0.005 56.7);
+  --accent-foreground: oklch(0.25 0.054 56.7);
+  --destructive: oklch(0.584 0.239 28.5);
+  --border: oklch(0.925 0.009 56.7);
+  --input: oklch(0.925 0.009 56.7);
+  --ring: oklch(0.746 0.18 56.7 / 0.9);
+  --radius: 0.75rem;
+  --shadow-lg: 0 10px 15px -3px oklch(0.55 0.027 56.7 / 0.1), 0 4px 6px -4px oklch(0.55 0.027 56.7 / 0.1);
+}

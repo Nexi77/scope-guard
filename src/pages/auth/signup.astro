@@ -6,18 +6,21 @@ const error = Astro.url.searchParams.get("error");
 ---
 
 <Layout title="Sign up">
-  <div class="bg-cosmic flex min-h-screen items-center justify-center p-4">
-    <div class="w-full max-w-sm rounded-2xl border border-white/10 bg-white/10 p-8 text-white backdrop-blur-xl">
-      <h1 class="mb-6 bg-gradient-to-r from-blue-200 to-purple-200 bg-clip-text text-center text-2xl font-bold text-transparent">
-        Sign up
-      </h1>
+  <main class="flex min-h-screen items-center justify-center bg-secondary/60 p-4 sm:p-6">
+    <div class="w-full max-w-sm rounded-xl border bg-card p-6 text-card-foreground shadow-lg sm:p-8">
+      <p class="mb-3 text-center text-xs font-semibold tracking-widest text-muted-foreground uppercase">ScopeGuard</p>
+      <h1 class="text-center text-3xl font-semibold tracking-tight">Create your account</h1>
+      <p class="mt-2 mb-7 text-center text-sm text-muted-foreground">Keep every change agreed from the start.</p>
       <SignUpForm serverError={error} client:load />
-      <p class="mt-4 text-center text-sm text-blue-100/60">
+      <p class="mt-6 text-center text-sm text-muted-foreground">
         Already have an account?{" "}
-        <a href="/auth/signin" class="text-purple-300 hover:underline">
+        <a
+          href="/auth/signin"
+          class="font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
           Sign in
         </a>
       </p>
     </div>
-  </div>
+  </main>
 </Layout>

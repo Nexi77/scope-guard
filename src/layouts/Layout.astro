@@ -1,7 +1,5 @@
 ---
 import "../styles/global.css";
-import Banner from "@/components/Banner.astro";
-import { missingConfigs } from "@/lib/config-status";
 
 interface Props {
   title?: string;
@@ -19,11 +17,6 @@ const { title = "ScopeGuard" } = Astro.props;
     <title>{title}</title>
   </head>
   <body>
-    {missingConfigs.map((cfg) => (
-      <Banner variant="error">
-        <strong>Configuration required:</strong> {cfg.message}
-      </Banner>
-    ))}
     <slot />
   </body>
 </html>
