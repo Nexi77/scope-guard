@@ -234,23 +234,23 @@ The schema is additive and contains no existing production domain records requir
 
 #### Automated
 
-- [x] 1.1 Shared Input, Label, Textarea, Select, and Field primitives build and lint
-- [x] 1.2 Auth forms retain their current validation and route contracts
+- [x] 1.1 Shared Input, Label, Textarea, Select, and Field primitives build and lint — c53767e
+- [x] 1.2 Auth forms retain their current validation and route contracts — c53767e
 
 #### Manual
 
-- [x] 1.3 Auth forms remain accessible and responsive in both themes
+- [x] 1.3 Auth forms remain accessible and responsive in both themes — c53767e
 
 ### Phase 2: Atomic customer and offer creation contract
 
 #### Automated
 
-- [ ] 2.1 Creation RPC applies and creates valid customer offers atomically
-- [ ] 2.2 Contract tests enforce ownership, duplicate confirmation, and rollback behavior
+- [x] 2.1 Creation RPC applies and creates valid customer offers atomically
+- [x] 2.2 Contract tests enforce ownership, duplicate confirmation, and rollback behavior
 
 #### Manual
 
-- [ ] 2.3 RPC grants and database exposure remain limited to authenticated creation
+- [x] 2.3 RPC grants and database exposure remain limited to authenticated creation
 
 ### Phase 3: Protected contractor creation flow
 

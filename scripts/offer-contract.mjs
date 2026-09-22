@@ -82,7 +82,7 @@ async function seedOffer({ client, contractorId, name, pinHash, revoked = false 
     .single();
   expectNoError(offerError, `seed ${name} offer`);
 
-  return offer;
+  return { ...offer, customerId: customer.id };
 }
 
 async function seedChange(client, contractorId, offerId, description, priceDeltaMinor) {
@@ -103,6 +103,9 @@ async function seedChange(client, contractorId, offerId, description, priceDelta
 async function run() {
   const contractorA = await createContractor("a");
   const contractorB = await createContractor("b");
+  const futureDeadline = new Date();
+  futureDeadline.setUTCDate(futureDeadline.getUTCDate() + 7);
+  const deadline = futureDeadline.toISOString().slice(0, 10);
   // bcrypt hash for the test-only PIN 246810; the raw PIN never enters persisted data or output.
   const pinHash = "$2a$10$LZ2utzh50uk4OoTmha5K1.EGkipYasH74EedZyzK9sxZnLJTBO.xq";
   const offerA = await seedOffer({ client: contractorA.client, contractorId: contractorA.id, name: "A", pinHash });
@@ -114,6 +117,110 @@ async function run() {
     pinHash,
     revoked: true,
   });
+
+  const newCustomerName = `New customer ${runId}`;
+  const newOfferRequest = {
+    p_customer_id: null,
+    p_customer_name: newCustomerName,
+    p_confirm_duplicate: false,
+    p_base_scope: "New customer scope",
+    p_base_amount_minor: 12_345,
+    p_currency_code: "PLN",
+    p_base_deadline: deadline,
+  };
+  const { data: newOfferRows, error: newOfferError } = await contractorA.client.rpc(
+    "create_offer_with_customer",
+    newOfferRequest,
+  );
+  expectNoError(newOfferError, "create an offer with a new customer");
+  expect(newOfferRows?.length === 1, "new-customer RPC must return one created offer");
+  const newOffer = newOfferRows[0];
+
+  const { data: persistedNewOffer, error: persistedNewOfferError } = await contractorA.client
+    .from("offers")
+    .select("customer_id, base_scope, base_amount_minor, currency_code, base_deadline")
+    .eq("id", newOffer.offer_id)
+    .single();
+  expectNoError(persistedNewOfferError, "read newly created offer");
+  expect(
+    persistedNewOffer.customer_id === newOffer.customer_id &&
+      persistedNewOffer.base_scope === "New customer scope" &&
+      persistedNewOffer.base_amount_minor === 12_345 &&
+      persistedNewOffer.currency_code === "PLN" &&
+      persistedNewOffer.base_deadline === deadline,
+    "new-customer RPC must persist the requested offer with its returned customer",
+  );
+
+  const { data: reusedOfferRows, error: reusedOfferError } = await contractorA.client.rpc(
+    "create_offer_with_customer",
+    {
+      ...newOfferRequest,
+      p_customer_id: offerA.customerId,
+      p_customer_name: null,
+      p_base_scope: "Existing customer scope",
+    },
+  );
+  expectNoError(reusedOfferError, "create an offer for an owned customer");
+  expect(
+    reusedOfferRows?.length === 1 && reusedOfferRows[0].customer_id === offerA.customerId,
+    "existing-customer RPC must reuse the selected owned customer",
+  );
+
+  const { count: customerCountBeforeForeignRequest, error: customerCountBeforeForeignRequestError } =
+    await contractorA.client.from("customers").select("id", { count: "exact", head: true });
+  expectNoError(customerCountBeforeForeignRequestError, "count customers before foreign request");
+  await expectError(
+    contractorA.client.rpc("create_offer_with_customer", {
+      ...newOfferRequest,
+      p_customer_id: offerB.customerId,
+      p_customer_name: null,
+    }),
+    "create an offer for another contractor's customer",
+  );
+  const { count: customerCountAfterForeignRequest, error: customerCountAfterForeignRequestError } =
+    await contractorA.client.from("customers").select("id", { count: "exact", head: true });
+  expectNoError(customerCountAfterForeignRequestError, "count customers after foreign request");
+  expect(
+    customerCountAfterForeignRequest === customerCountBeforeForeignRequest,
+    "foreign customer rejection must not create a customer",
+  );
+
+  await expectError(
+    contractorA.client.rpc("create_offer_with_customer", {
+      ...newOfferRequest,
+      p_customer_name: newCustomerName.toUpperCase(),
+    }),
+    "create a case-insensitive duplicate customer without confirmation",
+  );
+  const { data: duplicateOfferRows, error: duplicateOfferError } = await contractorA.client.rpc(
+    "create_offer_with_customer",
+    {
+      ...newOfferRequest,
+      p_customer_name: newCustomerName.toUpperCase(),
+      p_confirm_duplicate: true,
+    },
+  );
+  expectNoError(duplicateOfferError, "create a confirmed duplicate customer");
+  expect(
+    duplicateOfferRows?.length === 1 && duplicateOfferRows[0].customer_id !== newOffer.customer_id,
+    "explicit duplicate confirmation must create a distinct same-named customer",
+  );
+
+  const rollbackCustomerName = `Rollback customer ${runId}`;
+  await expectError(
+    contractorA.client.rpc("create_offer_with_customer", {
+      ...newOfferRequest,
+      p_customer_name: rollbackCustomerName,
+      p_base_scope: " ",
+    }),
+    "create an offer with invalid scope",
+  );
+  const { data: rollbackCustomers, error: rollbackCustomersError } = await contractorA.client
+    .from("customers")
+    .select("id")
+    .eq("name", rollbackCustomerName);
+  expectNoError(rollbackCustomersError, "read customers after failed creation");
+  expect(rollbackCustomers.length === 0, "failed creation must not leave a new customer behind");
 
   const acceptedChange = await seedChange(
     contractorA.client,
@@ -133,7 +240,7 @@ async function run() {
   const { data: ownOffers, error: ownOffersError } = await contractorA.client.from("offers").select("id");
   expectNoError(ownOffersError, "contractor A reads own offers");
   expect(
-    ownOffers.length === 2 && ownOffers.every((offer) => offer.id !== offerB.id),
+    ownOffers.length === 5 && ownOffers.every((offer) => offer.id !== offerB.id),
     "contractor A must not read contractor B's offer",
   );
 
@@ -147,6 +254,13 @@ async function run() {
   const anonymous = createClient(url, anonKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
+  await expectError(
+    anonymous.rpc("create_offer_with_customer", {
+      ...newOfferRequest,
+      p_customer_name: `Anonymous customer ${runId}`,
+    }),
+    "anonymous offer creation RPC access",
+  );
   for (const table of ["customers", "offers", "offer_changes", "change_decisions"]) {
     await expectError(anonymous.from(table).select("id"), `anonymous ${table} table access`);
   }
