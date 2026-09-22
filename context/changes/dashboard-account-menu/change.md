@@ -1,7 +1,7 @@
 ---
 change_id: dashboard-account-menu
 title: Add the dashboard account menu
-status: in_progress
+status: impl_reviewed
 created: 2026-09-22
 updated: 2026-09-22
 archived_at: null

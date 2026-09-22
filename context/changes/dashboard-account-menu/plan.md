@@ -21,4 +21,4 @@ Replace the centered signed-in confirmation with a responsive dashboard header w
 
 - [x] Add component and theme behavior
 - [x] Render the dashboard header
-- [x] Verify lint, build, and Astro type checks; browser capture was unavailable because localhost is blocked in the in-app browser
+- [x] Verify lint, build, Astro type checks, and the desktop/mobile browser view (manually verified by the user)
