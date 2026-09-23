@@ -226,13 +226,13 @@ The project is not production deployed, and the product owner permits discarding
 
 #### Automated
 
-- [ ] 2.1 `npm run lint` and `npm run build` pass for the item editor, protected detail page, and endpoints.
-- [ ] 2.2 Smoke coverage creates an itemized offer, follows the detail link, checks calculated lines/total, edits before any change, and rejects malformed or unauthenticated submissions without partial records.
-- [ ] 2.3 Smoke or contract coverage verifies a foreign contractor cannot view or edit another offer's items and a stale/locked update leaves the stored total unchanged.
+- [x] 2.1 `npm run lint` and `npm run build` pass for the item editor, protected detail page, and endpoints.
+- [x] 2.2 Smoke coverage creates an itemized offer, follows the detail link, checks calculated lines/total, edits before any change, and rejects malformed or unauthenticated submissions without partial records.
+- [x] 2.3 Smoke or contract coverage verifies a foreign contractor cannot view or edit another offer's items and a stale/locked update leaves the stored total unchanged.
 
 #### Manual
 
-- [ ] 2.4 On phone and desktop, the contractor can enter two differently measured items, review their rounded lines and total, correct an eligible offer, and understand validation and locked states using keyboard and screen-reader labels.
+- [x] 2.4 On phone and desktop, the contractor can enter two differently measured items, review their rounded lines and total, correct an eligible offer, and understand validation and locked states using keyboard and screen-reader labels.
 
 ### Phase 3: End-to-end verification and handoff
 

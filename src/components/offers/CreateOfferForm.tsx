@@ -4,9 +4,15 @@ import { CheckCircle2, Plus, UserPlus, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import OfferItemsEditor from "@/components/offers/OfferItemsEditor";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { parsePlnAmount } from "@/lib/pln";
+import {
+  EMPTY_OFFER_ITEM,
+  parseOfferItemDrafts,
+  type OfferItemDraft,
+  type OfferItemValidationError,
+} from "@/lib/offer-items";
 
 interface Customer {
   id: string;
@@ -17,21 +23,23 @@ interface CreateOfferFormProps {
   customers: Customer[];
   serverError?: string | null;
   created: boolean;
+  createdOfferId?: string | null;
   createdCustomerId?: string | null;
 }
 
 type CustomerMode = "existing" | "new";
-type Errors = Partial<Record<"customer" | "scope" | "amount" | "deadline", string>>;
+type Errors = Partial<Record<"customer" | "scope" | "deadline", string>>;
 
 const today = new Date().toISOString().slice(0, 10);
 
-function CreateOfferForm({ customers, serverError, created, createdCustomerId }: CreateOfferFormProps) {
+function CreateOfferForm({ customers, serverError, created, createdOfferId, createdCustomerId }: CreateOfferFormProps) {
   const [customerMode, setCustomerMode] = useState<CustomerMode>(customers.length ? "existing" : "new");
   const [customerId, setCustomerId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [baseScope, setBaseScope] = useState("");
-  const [amount, setAmount] = useState("");
   const [deadline, setDeadline] = useState("");
+  const [items, setItems] = useState<OfferItemDraft[]>([{ ...EMPTY_OFFER_ITEM }]);
+  const [itemError, setItemError] = useState<OfferItemValidationError | null>(null);
   const [confirmDuplicate, setConfirmDuplicate] = useState(false);
   const [errors, setErrors] = useState<Errors>({});
 
@@ -52,7 +60,6 @@ function CreateOfferForm({ customers, serverError, created, createdCustomerId }:
 
   function validate() {
     const next: Errors = {};
-    const normalizedAmount = amount.trim();
 
     if (customerMode === "existing" && !customerId) {
       next.customer = "Choose an existing customer or add a new one.";
@@ -64,9 +71,9 @@ function CreateOfferForm({ customers, serverError, created, createdCustomerId }:
       next.customer = "Choose whether to reuse the matching customer or create a separate record.";
     }
     if (!baseScope.trim()) next.scope = "Original scope is required.";
-    if (parsePlnAmount(normalizedAmount) === null) {
-      next.amount = "Enter a non-negative PLN amount with up to two decimal places.";
-    }
+    const parsedItems = parseOfferItemDrafts(items);
+    if ("error" in parsedItems) setItemError(parsedItems.error);
+    else setItemError(null);
     if (!deadline) {
       next.deadline = "Deadline is required.";
     } else if (deadline < today) {
@@ -74,7 +81,7 @@ function CreateOfferForm({ customers, serverError, created, createdCustomerId }:
     }
 
     setErrors(next);
-    return Object.keys(next).length === 0;
+    return Object.keys(next).length === 0 && "items" in parsedItems;
   }
 
   function handleSubmit(event: React.SubmitEvent<HTMLFormElement>) {
@@ -91,8 +98,16 @@ function CreateOfferForm({ customers, serverError, created, createdCustomerId }:
         <h2 id="offer-created-title" className="text-xl font-semibold">
           Offer created
         </h2>
-        <p className="text-muted-foreground mt-2">The original scope is recorded and ready for future changes.</p>
+        <p className="text-muted-foreground mt-2">The original scope and itemized price are ready for review.</p>
         <div className="mt-6 flex flex-col items-start gap-4">
+          {createdOfferId ? (
+            <a
+              href={`/offers/${encodeURIComponent(createdOfferId)}`}
+              className="text-primary focus-visible:ring-ring inline-flex text-sm font-medium underline underline-offset-4 focus-visible:ring-2 focus-visible:outline-none"
+            >
+              Review this offer
+            </a>
+          ) : null}
           {createdCustomerId ? (
             <a
               href={`/offers?customer=${encodeURIComponent(createdCustomerId)}`}
@@ -125,6 +140,16 @@ function CreateOfferForm({ customers, serverError, created, createdCustomerId }:
         type="hidden"
         name="confirm_duplicate"
         value={customerMode === "new" && confirmDuplicate ? "true" : "false"}
+      />
+      <input
+        type="hidden"
+        name="items_json"
+        value={JSON.stringify(
+          (() => {
+            const parsed = parseOfferItemDrafts(items);
+            return "items" in parsed ? parsed.items : [];
+          })(),
+        )}
       />
 
       <fieldset className="space-y-4">
@@ -241,22 +266,9 @@ function CreateOfferForm({ customers, serverError, created, createdCustomerId }:
         )}
       </Field>
 
+      <OfferItemsEditor items={items} onChange={setItems} error={itemError} />
+
       <div className="grid gap-6 sm:grid-cols-2">
-        <Field id="base-amount" label="Price (PLN)" hint="For example, 1,250.00" error={errors.amount}>
-          {(controlProps) => (
-            <Input
-              {...controlProps}
-              name="base_amount"
-              value={amount}
-              onChange={(event) => {
-                setAmount(event.target.value);
-                clearError("amount");
-              }}
-              inputMode="decimal"
-              placeholder="0.00"
-            />
-          )}
-        </Field>
         <Field id="base-deadline" label="Deadline" error={errors.deadline}>
           {(controlProps) => (
             <Input

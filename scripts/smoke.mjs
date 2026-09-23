@@ -119,15 +119,67 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function standardItems(rateMinor = 125_000) {
+  return [
+    {
+      name: "Smoke-tested work item",
+      quantity: 1,
+      unit: "piece",
+      specification: "Smoke-tested specification",
+      selling_rate_minor: rateMinor,
+      labor_hours_per_unit: 1.25,
+    },
+  ];
+}
+
+function primaryItems() {
+  return [
+    {
+      name: "Painted wall",
+      quantity: 1.25,
+      unit: "m²",
+      specification: "Two coats, white finish",
+      selling_rate_minor: 99_800,
+      labor_hours_per_unit: 0.4,
+    },
+    {
+      name: "Socket installation",
+      quantity: 2,
+      unit: "piece",
+      specification: "White recessed socket",
+      selling_rate_minor: 125,
+      labor_hours_per_unit: 0.25,
+    },
+  ];
+}
+
 function customerIdFromLocation(location) {
   return new URL(location, BASE_URL).searchParams.get("customer");
 }
 
+function offerIdFromLocation(location) {
+  return new URL(location, BASE_URL).searchParams.get("offer");
+}
+
+function itemIdsFromPage(body) {
+  return [...body.matchAll(/data-offer-item-id="([0-9a-f-]{36})"/gi)].map((match) => match[1]);
+}
+
+function itemLineAmountsFromPage(body) {
+  return [...body.matchAll(/data-line-amount-minor="(\d+)"/gi)].map((match) => match[1]);
+}
+
+function offerTotalFromPage(body) {
+  return body.match(/data-offer-total-minor="(\d+)"/i)?.[1] ?? null;
+}
+
 const customerName = `Smoke customer ${Date.now()}`;
+const malformedCustomerName = `Malformed items customer ${Date.now()}`;
 const foreignCustomerName = `Foreign smoke customer ${Date.now()}`;
 const foreignScope = "Foreign contractor private scope";
 let createdCustomerId = null;
 let reusedCustomerId = null;
+let reusedOfferId = null;
 let foreignCustomerId = null;
 let offerId = null;
 let foreignOfferId = null;
@@ -184,6 +236,26 @@ const steps = [
     { status: 302, location: "/offers/new?error=" },
   ],
   [
+    "malformed item creation leaves no partial customer or offer",
+    async () => {
+      const rejected = await request("/api/offers", {
+        method: "POST",
+        form: {
+          customer_name: malformedCustomerName,
+          confirm_duplicate: "false",
+          base_scope: "Must not be saved",
+          base_deadline: today(),
+          items_json: JSON.stringify([{ ...standardItems()[0], quantity: 0 }]),
+        },
+      });
+      if (rejected.status !== 302 || !rejected.location.startsWith("/offers/new?error=")) {
+        return { ...rejected, body: `malformed-create-status-${rejected.status}` };
+      }
+      return request(`/offers?q=${encodeURIComponent(malformedCustomerName)}`);
+    },
+    { status: 200, body: "No matching customers", absentBody: ["Must not be saved"] },
+  ],
+  [
     "offer creation redirects to confirmation",
     async () => {
       const creation = await request("/api/offers", {
@@ -192,27 +264,110 @@ const steps = [
           customer_name: customerName,
           confirm_duplicate: "false",
           base_scope: "Smoke-tested original scope",
-          base_amount: "1,250.00",
           base_deadline: today(),
+          items_json: JSON.stringify(primaryItems()),
         },
       });
       createdCustomerId = customerIdFromLocation(creation.location);
+      offerId = offerIdFromLocation(creation.location);
       return creation;
     },
     {
       status: 302,
-      locationPattern: /^\/offers\/new\?created=1&customer=[0-9a-f-]{36}$/i,
-      check: () => Boolean(createdCustomerId),
+      locationPattern: /^\/offers\/new\?created=1&offer=[0-9a-f-]{36}&customer=[0-9a-f-]{36}$/i,
+      check: () => Boolean(createdCustomerId && offerId),
     },
   ],
   [
     "new-customer creation confirmation links to the owned customer group",
-    () => request(`/offers/new?created=1&customer=${createdCustomerId}`),
+    () => request(`/offers/new?created=1&offer=${offerId}&customer=${createdCustomerId}`),
     {
       status: 200,
-      body: ["Offer created", "View this customer’s offers", "Create another offer"],
-      check: (actual) => actual.body.includes(`/offers?customer=${createdCustomerId}`),
+      body: ["Offer created", "Review this offer", "View this customer’s offers", "Create another offer"],
+      check: (actual) =>
+        actual.body.includes(`/offers/${offerId}`) && actual.body.includes(`/offers?customer=${createdCustomerId}`),
     },
+  ],
+  [
+    "offer detail shows item lines, rounded total, deadline, and private effort",
+    () => request(`/offers/${offerId}`),
+    {
+      status: 200,
+      body: ["Painted wall", "Socket installation", "2,50 zł", "Labor hours/unit (private)", "0.4"],
+      check: (actual) =>
+        itemIdsFromPage(actual.body).length === 2 &&
+        JSON.stringify(itemLineAmountsFromPage(actual.body)) === JSON.stringify(["124750", "250"]) &&
+        offerTotalFromPage(actual.body) === "125000",
+    },
+  ],
+  [
+    "offer item edit succeeds before change history and advances the revision",
+    async () => {
+      const details = await request(`/offers/${offerId}`);
+      const itemIds = itemIdsFromPage(details.body);
+      const changedItems = primaryItems();
+      changedItems[0].quantity = 1.5;
+      return request(`/api/offers/${offerId}/items`, {
+        method: "POST",
+        form: {
+          expected_revision: "1",
+          items_json: JSON.stringify(changedItems.map((item, index) => ({ ...item, id: itemIds[index] }))),
+        },
+      });
+    },
+    { status: 200, body: '"revision":2' },
+  ],
+  [
+    "edited offer detail reflects the recalculated total",
+    () => request(`/offers/${offerId}`),
+    {
+      status: 200,
+      body: "Painted wall",
+      check: (actual) =>
+        JSON.stringify(itemLineAmountsFromPage(actual.body)) === JSON.stringify(["149700", "250"]) &&
+        offerTotalFromPage(actual.body) === "149950",
+    },
+  ],
+  [
+    "malformed and stale item edits are rejected without changing the saved total",
+    async () => {
+      const detailsBefore = await request(`/offers/${offerId}`);
+      const itemIds = itemIdsFromPage(detailsBefore.body);
+      const validItems = primaryItems().map((item, index) => ({ ...item, id: itemIds[index] }));
+      const invalid = await request(`/api/offers/${offerId}/items`, {
+        method: "POST",
+        form: {
+          expected_revision: "2",
+          items_json: JSON.stringify([{ ...validItems[0], quantity: 0 }, validItems[1]]),
+        },
+      });
+      if (invalid.status !== 400) return { ...invalid, body: `invalid-edit-status-${invalid.status}` };
+      const stale = await request(`/api/offers/${offerId}/items`, {
+        method: "POST",
+        form: { expected_revision: "1", items_json: JSON.stringify(validItems) },
+      });
+      if (stale.status !== 409) return { ...stale, body: `stale-edit-status-${stale.status}` };
+      const detailsAfter = await request(`/offers/${offerId}`);
+      const amounts = itemLineAmountsFromPage(detailsAfter.body);
+      return {
+        ...detailsAfter,
+        body: `${invalid.body} ${stale.body} lines:${amounts.join(",")} total:${offerTotalFromPage(detailsAfter.body)}`,
+      };
+    },
+    {
+      status: 200,
+      body: ["positive quantity", "changed while you were editing", "lines:149700,250", "total:149950"],
+    },
+  ],
+  [
+    "anonymous contractor cannot edit an offer's items",
+    () =>
+      request(
+        `/api/offers/${offerId}/items`,
+        { method: "POST", form: { expected_revision: "2", items_json: "[]" } },
+        new Map(),
+      ),
+    { status: 401, body: "Sign in to edit this offer" },
   ],
   [
     "new-customer offer group renders scope, status, current price, and deadline",
@@ -315,14 +470,15 @@ const steps = [
         form: {
           customer_id: customerId,
           base_scope: "Smoke-tested reused customer scope",
-          base_amount: "2.50",
           base_deadline: today(),
+          items_json: JSON.stringify(standardItems(250)),
         },
       });
       reusedCustomerId = customerId;
+      reusedOfferId = offerIdFromLocation(created.location);
       return created;
     },
-    { status: 302, locationPattern: /^\/offers\/new\?created=1&customer=[0-9a-f-]{36}$/i },
+    { status: 302, locationPattern: /^\/offers\/new\?created=1&offer=[0-9a-f-]{36}&customer=[0-9a-f-]{36}$/i },
   ],
   [
     "offer creation confirmation renders",
@@ -332,7 +488,7 @@ const steps = [
   [
     "reused-customer confirmation links to the same group",
     async () => {
-      return request(`/offers/new?created=1&customer=${reusedCustomerId}`);
+      return request(`/offers/new?created=1&offer=${reusedOfferId}&customer=${reusedCustomerId}`);
     },
     {
       status: 200,
@@ -349,7 +505,7 @@ const steps = [
         "Smoke-tested reused customer scope",
         "Smoke-tested original scope",
         "2,50 zł",
-        "1250,00 zł",
+        "499,50 zł",
         "pending",
         today(),
       ],
@@ -373,30 +529,45 @@ const steps = [
             customer_name: foreignCustomerName,
             confirm_duplicate: "false",
             base_scope: foreignScope,
-            base_amount: "9.99",
             base_deadline: today(),
+            items_json: JSON.stringify(standardItems(999)),
           },
         },
         foreignJar,
       );
       foreignCustomerId = customerIdFromLocation(creation.location);
+      foreignOfferId = offerIdFromLocation(creation.location);
       return { ...creation, body: foreignCustomerId ? "foreign-customer-created" : creation.body };
     },
     {
       status: 302,
-      locationPattern: /^\/offers\/new\?created=1&customer=[0-9a-f-]{36}$/i,
+      locationPattern: /^\/offers\/new\?created=1&offer=[0-9a-f-]{36}&customer=[0-9a-f-]{36}$/i,
       body: "foreign-customer-created",
+    },
+  ],
+  [
+    "foreign offer detail and item edits reveal no offer data",
+    async () => {
+      const detail = await request(`/offers/${foreignOfferId}`);
+      const edit = await request(`/api/offers/${foreignOfferId}/items`, {
+        method: "POST",
+        form: { expected_revision: "1", items_json: JSON.stringify(standardItems()) },
+      });
+      return { ...detail, body: `${detail.body} ${edit.body} edit-status-${edit.status}` };
+    },
+    {
+      status: 404,
+      body: ["Offer unavailable", "Offer is unavailable", "edit-status-404"],
+      absentBody: [foreignCustomerName, foreignScope],
     },
   ],
   [
     "foreign offer PIN cannot be managed by this contractor",
     async () => {
-      const page = await request(`/offers?customer=${foreignCustomerId}`, {}, foreignJar);
-      foreignOfferId = offerIdFromPage(page.body);
-      if (!foreignOfferId) return { ...page, status: 0, body: "foreign offer unavailable" };
+      if (!foreignOfferId) return { status: 0, location: "", body: "foreign offer unavailable" };
       return request(`/api/offers/${foreignOfferId}/pin`, { method: "POST" });
     },
-    { status: 404, body: "PIN could not be managed", absentBody: ["pin_hash", "share_token"] },
+    { status: 404, body: "Offer is unavailable", absentBody: ["pin_hash", "share_token"] },
   ],
   [
     "invalid customer query shows a safe unavailable state",

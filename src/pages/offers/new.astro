@@ -12,6 +12,7 @@ const { data: customers, error: customersError } = supabase
   : { data: [], error: null };
 const error = Astro.url.searchParams.get("error");
 const created = Astro.url.searchParams.get("created") === "1";
+const createdOfferId = Astro.url.searchParams.get("offer");
 const createdCustomerId = Astro.url.searchParams.get("customer");
 ---
 
@@ -39,7 +40,7 @@ const createdCustomerId = Astro.url.searchParams.get("customer");
       <div class="mb-8 mt-5 space-y-2">
         <h1 class="text-3xl font-semibold tracking-tight">Create an offer</h1>
         <p class="text-muted-foreground max-w-2xl">
-          Capture the original scope, price, deadline, and customer before changes begin.
+          Capture the original scope, itemized price, deadline, and customer before changes begin.
         </p>
       </div>
       {customersError ? (
@@ -55,6 +56,7 @@ const createdCustomerId = Astro.url.searchParams.get("customer");
           customers={customers}
           serverError={error}
           created={created}
+          createdOfferId={createdOfferId}
           createdCustomerId={createdCustomerId}
         />
       )}
