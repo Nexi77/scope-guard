@@ -183,7 +183,7 @@ Existing offers retain null `pin_hash` until the contractor generates a PIN. The
 
 #### Manual
 
-- [ ] 2.3 On desktop and phone widths, generate and copy a PIN from an offer card, close the result, and confirm the plaintext cannot be redisplayed after reopening or refreshing. — Copy, close, reopen, and refresh verified in the narrow local preview; desktop-width verification remains.
-- [ ] 2.4 Reset a configured PIN, confirm the replacement warning and one-time display, and confirm the same offer link remains valid while the old PIN no longer authorizes a decision. — Reset prompt, one-time display, and cancel behavior verified locally; shared-link/decision check remains deferred at user request because no customer link flow is available.
-- [ ] 2.5 Keyboard users can open, operate, and close the PIN control; status and errors are understandable without relying on color. — Dialog keyboard open, Tab, Enter, and Escape verified; status/error-state review remains.
+- [x] 2.3 On desktop and phone widths, generate and copy a PIN from an offer card, close the result, and confirm the plaintext cannot be redisplayed after reopening or refreshing. — manually verified by user
+- [x] 2.4 Reset a configured PIN, confirm the replacement warning and one-time display, and confirm the same offer link remains valid while the old PIN no longer authorizes a decision. — manually verified by user
+- [x] 2.5 Keyboard users can open, operate, and close the PIN control; status and errors are understandable without relying on color. — manually verified by user
 - [x] 2.6 Reset uses an accessible Radix AlertDialog; Cancel and Escape do not reset the PIN and return focus to the trigger, while Confirm initiates reset and focus returns to the trigger. — afc4656; manually verified in the local browser
