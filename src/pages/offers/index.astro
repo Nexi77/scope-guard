@@ -207,12 +207,11 @@ const nextOfferHref = (() => {
                     href={`/offers?${new URLSearchParams({ ...(query ? { q: query } : {}), customer: customer.id }).toString()}`}
                     aria-current={selectedCustomer?.id === customer.id ? "true" : undefined}
                     class:list={[
-                      "flex min-h-14 items-center justify-between gap-3 px-4 py-3 text-sm focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none",
+                      "flex min-h-14 items-center justify-start gap-3 px-4 py-3 text-sm focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none",
                       selectedCustomer?.id === customer.id ? "bg-secondary font-medium" : "hover:bg-secondary/60",
                     ]}
                   >
                     <span>{customer.name}</span>
-                    <span class="text-muted-foreground text-xs">{`Record ${customer.id.slice(0, 8)}`}</span>
                   </a>
                 </li>
               ))}
