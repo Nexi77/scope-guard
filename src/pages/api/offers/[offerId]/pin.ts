@@ -36,7 +36,10 @@ export const POST: APIRoute = async (context) => {
     const result = await supabase.rpc("set_offer_pin", { p_offer_id: offerId, p_pin: pin });
     if (!result.error && result.data === true) return json({ pin }, 200);
     if (result.error?.message === "PIN must differ from the current PIN") continue;
-    return json({ error: "PIN could not be managed. Check that this offer is available and try again." }, 404);
+    if (result.error?.message === "Offer is unavailable") {
+      return json({ error: "Offer is unavailable." }, 404);
+    }
+    return json({ error: "PIN could not be managed. Try again." }, 503);
   }
 
   return json({ error: "A new PIN could not be generated. Try again." }, 503);

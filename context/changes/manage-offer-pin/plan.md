@@ -150,6 +150,10 @@ PIN generation and hashing occur on demand, not while listing offers. Keep the o
 
 Existing offers retain null `pin_hash` until the contractor generates a PIN. The migration adds a command rather than changing existing offer rows or share tokens. If rolling back the application, installed hashes remain valid for the later decision RPC; if rolling back the migration, remove only its new function/grants after dependent app code is withdrawn.
 
+## Implementation Addendum
+
+- Commit `28facf1` removed the visible customer record UUID from the offer-list navigation in `src/pages/offers/index.astro`. The UUID was unnecessary for contractors to identify a customer; the navigation still uses it internally in the link. This privacy cleanup was discovered during the PIN UI work and does not change PIN behavior or access control.
+
 ## References
 
 - Research: `context/changes/manage-offer-pin/research.md`
