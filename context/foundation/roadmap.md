@@ -14,18 +14,20 @@ milestone_status: open
 
 # Roadmap: ScopeGuard
 
-> Derived from `context/foundation/prd.md` + auto-researched codebase baseline.
+> Derived from `context/foundation/prd.md`, the assisted-estimation research, and the user's structured-offer request + auto-researched codebase baseline.
 > Edit-in-place; archive when superseded.
-> Slices below are listed in dependency order. The "At a glance" table is the index.
+> Slices below are listed in dependency order. IDs remain stable when a new prerequisite is inserted. The "At a glance" table is the index.
 
 ## Milestone
 
 **M-1: First working change-approval flow** — Status: open
 
-- **Intent:** Deliver a complete, secure flow for the contractor and their customer to formally confirm a scope change and its impact on price and deadline. The result must appear in the current offer and its history.
-- **Source materials:** `context/foundation/prd.md` (v1)
+- **Intent:** Deliver a complete, secure flow in which the contractor prepares a structured offer, receives assistance estimating a scope change, and obtains the customer's confirmation of its price and deadline impact. The result must appear in the current offer and its history.
+- **Source materials:** `context/foundation/prd.md` (v1); `context/changes/record-offer-change/research.md`; user's request to support automated estimation across renovation, electrical, and plumbing work and introduce the required structured offer model.
 - **Done when:** every F-NN and S-NN below is `done`.
-- **Scope anchors:** FR-001–FR-008, US-01.
+- **Scope anchors:** FR-001–FR-008, US-01; the following additions from the user's request extend the manual-entry scope of PRD v1:
+  - MS-01: Contractor can prepare and review an itemized offer with the quantities, units, specifications, pricing basis, and effort assumptions required to estimate later changes.
+  - MS-02: System helps the contractor estimate and explain a change's complexity, cost, and time against the current agreed work, with reusable trade-specific inputs and contractor confirmation before customer approval.
 
 ## Vision recap
 
@@ -45,7 +47,8 @@ ScopeGuard gathers agreements about changes raised during a renovation or instal
 | S-01 | create-client-offer | create a customer and an offer assigned to that customer | F-01 | FR-001 | done |
 | S-02 | browse-client-offers | browse a customer's offers with status, price, and delivery deadline | S-01 | FR-002 | done |
 | S-03 | manage-offer-pin | set or reset a PIN for a customer or offer | S-01 | FR-008 | done |
-| S-04 | record-offer-change | add a change, describe it, and classify its price and deadline impact | S-01 | FR-003 | proposed |
+| S-08 | prepare-structured-offer | prepare and review an itemized offer that provides a reliable baseline for change estimates | S-01 | FR-001, FR-002; MS-01 | ready |
+| S-04 | record-offer-change | estimate a change against agreed work and confirm its explained price and deadline impact | S-01, S-08 | FR-003; Business Logic; MS-02 | proposed |
 | S-05 | view-shared-offer | use a permanent link to see only the assigned offer and its current status | S-01, S-04 | FR-005, FR-006 | proposed |
 | S-06 | decide-change-by-pin | use a permanent link and PIN to approve or reject a pending change | S-03, S-04, S-05 | US-01, FR-007 | proposed |
 | S-07 | view-offer-history | see the current offer plus the history of changes and customer decisions | S-04, S-06 | FR-004, FR-005 | proposed |
@@ -57,13 +60,15 @@ Navigation aid — groups items that share a prerequisite chain. Canonical order
 | Stream | Theme | Chain | Note |
 | --- | --- | --- | --- |
 | A | Customer decision | `F-01` → `S-01` → `S-03` → `S-06` → `S-07` | The critical path for fast launch; `S-06` also joins the result of Stream B. |
-| B | Change and sharing | `S-04` → `S-05` | Runs in parallel after `S-01` and joins Stream A at `S-06`. |
+| B | Structured offer, change estimation, and sharing | `S-08` → `S-04` → `S-05` | Starts after `S-01` and joins Stream A at `S-06`. |
 | C | Offer browsing | `S-02` | An independent contractor capability after the first offer exists. |
 
 ## Baseline
 
 What's already in place in the codebase as of `2026-09-21` (auto-researched + user-confirmed).
 Foundations below assume these are present and do NOT re-scaffold them.
+
+Update from the assisted-estimation research on `2026-09-23`: offer creation, browsing, PIN management, and durable change/decision records now exist. Offers still contain free-text scope and a total price/deadline; structured work items and an estimator are absent from the inspected application path. The layer inventory below is the original milestone baseline, not a statement that those completed slices are missing today.
 
 - **Frontend:** present — Astro, React, and Tailwind; public, authentication, and dashboard views exist (`astro.config.mjs`, `src/pages/`, `src/components/auth/`).
 - **Backend / API:** partial — only authentication endpoints and middleware exist; no domain endpoints for offers or changes (`src/pages/api/auth/`, `src/middleware.ts`).
@@ -125,16 +130,31 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **Risk:** A PIN is required for a secure customer decision, so it precedes the approval action.
 - **Status:** done
 
-### S-04: Record an offer change
+### S-08: Prepare a structured offer
 
-- **Outcome:** contractor can add a change, describe it, and classify its impact on price and deadline.
-- **Change ID:** record-offer-change
-- **PRD refs:** FR-003; Business Logic
+- **Outcome:** contractor can prepare and review an itemized offer with named work items, quantities and units, specifications, pricing inputs, and labor-effort assumptions, see calculated line amounts and the offer total, and retain a description for context. Existing text-only offers remain readable; the contractor can explicitly map their scope into items without silently changing the agreed price, deadline, or history.
+- **Change ID:** prepare-structured-offer
+- **PRD refs:** FR-001, FR-002; MS-01
 - **Prerequisites:** S-01
 - **Parallel with:** S-02, S-03
 - **Blockers:** —
-- **Unknowns:** —
-- **Risk:** The impact classification determines whether the customer must decide; that rule must work in the actual flow, not only in documentation.
+- **Unknowns:**
+  - How should the contractor reconcile item amounts with an existing lump-sum offer while preserving its agreed total and making any allocation explicit? — Owner: team and contractor. Block: no; resolve during planning before implementation.
+  - Which minimum pricing and effort inputs are required for an item to be marked ready for estimation, and how are incomplete items presented? — Owner: team and contractor. Block: no; resolve during planning before implementation.
+- **Risk:** This slice must deliver usable offer preparation and a trustworthy baseline; expanding it into a full estimating catalog or silently repricing existing agreements would obscure that outcome.
+- **Status:** ready
+
+### S-04: Estimate and record an offer change
+
+- **Outcome:** contractor can select affected agreed work, describe the proposed change, reuse trade-specific work templates and rates, and review suggested complexity reasons, cost, labor effort, and conditional deadline impact. The contractor confirms the explained customer price and deadline adjustment before it enters the existing approval or no-impact correction flow.
+- **Change ID:** record-offer-change
+- **PRD refs:** FR-003; Business Logic; MS-02
+- **Prerequisites:** S-01, S-08
+- **Parallel with:** S-02, S-03
+- **Blockers:** —
+- **Unknowns:**
+  - Which initial trade templates and contractor-supplied rates are validated, and which site conditions require assessment rather than an automatic estimate? — Owner: team and contractor. Block: no; resolve during planning before implementation.
+- **Risk:** Estimates must use current agreed work and execution progress, distinguish cost from customer price and effort from deadline movement, and keep unresolved impact out of the no-impact correction path.
 - **Status:** proposed
 
 ### S-05: View a shared offer
@@ -181,14 +201,19 @@ Foundations below assume these are present and do NOT re-scaffold them.
 | S-01 | create-client-offer | Create a customer and offer | no | Requires F-01. |
 | S-02 | browse-client-offers | Browse a customer's offers | no | Requires S-01. |
 | S-03 | manage-offer-pin | Manage an offer PIN | no | Requires S-01. |
-| S-04 | record-offer-change | Record an offer change | no | Requires S-01. |
+| S-08 | prepare-structured-offer | Prepare a structured offer | yes | Next: `/10x-plan prepare-structured-offer`; S-01 is done. |
+| S-04 | record-offer-change | Estimate and record an offer change | no | Requires S-08; reuse the existing research and keep change-specific calculations here. |
 | S-05 | view-shared-offer | View a shared offer | no | Requires S-01 and S-04. |
 | S-06 | decide-change-by-pin | Customer decision on a change by PIN | no | Requires S-03, S-04, and S-05. |
 | S-07 | view-offer-history | View current offer and decision history | no | Requires S-04 and S-06. |
 
 ## Open Roadmap Questions
 
-None — the PRD has no open questions relevant to sequencing.
+1. **Align the product contract with assisted estimation.** PRD v1 describes manual classification; MS-01 and MS-02 record the user's expanded scope without implying that the PRD already specifies it. Carry these additions into the PRD before implementation. — Owner: product owner and team. Block: implementation of S-08 and S-04, not planning S-08.
+2. **Choose a consistent pricing basis.** Settle whether item inputs primarily represent selling prices or internal cost plus markup, how old lump-sum allocations work, and whether amounts include tax. Preserve existing agreed totals during conversion. — Owner: product owner and contractor. Block: implementation of S-08 and S-04; resolve while planning S-08.
+3. **Confirm baseline acceptance and amendment eligibility.** Determine when an initial offer is considered agreed and eligible for estimated changes; itemization must not imply customer acceptance or bypass approval for price/deadline changes. — Owner: product owner and team. Block: implementation of the amendment/approval flow in S-04 and S-06.
+
+Slice boundary: S-08 delivers itemized offer preparation and review, including the transition for existing offers. S-04 introduces reusable change recipes, execution-progress questions, before/after calculations, omission credits, rework consequences, and estimate explanations. The existing approval and history slices consume the confirmed proposal. Keep full offer versioning, a visual rules editor, and a complete scheduling system outside this milestone.
 
 ## Parked
 
