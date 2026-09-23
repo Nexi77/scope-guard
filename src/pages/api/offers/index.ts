@@ -1,5 +1,11 @@
 import type { APIContext, APIRoute } from "astro";
 
+import {
+  exceedsUtf8ByteLimit,
+  MAX_OFFER_ITEMS_JSON_BYTES,
+  readBoundedFormData,
+  RequestBodyTooLargeError,
+} from "@/lib/bounded-form-data";
 import { parseOfferItemPayloads } from "@/lib/offer-items";
 import { createClient } from "@/lib/supabase";
 
@@ -19,6 +25,11 @@ function readText(form: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function readRawText(form: FormData, key: string) {
+  const value = form.get(key);
+  return typeof value === "string" ? value : "";
+}
+
 function isTodayOrLater(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00.000Z`);
@@ -35,15 +46,28 @@ export const POST: APIRoute = async (context) => {
   } = await supabase.auth.getUser();
   if (!user) return context.redirect("/auth/signin");
 
-  const form = await context.request.formData();
+  let form: FormData;
+  try {
+    form = await readBoundedFormData(context.request);
+  } catch (error) {
+    const message =
+      error instanceof RequestBodyTooLargeError
+        ? "Offer request is too large. Reduce the item details and try again."
+        : "Submit valid offer details and try again.";
+    return errorRedirect(context, message);
+  }
   const customerId = readText(form, "customer_id");
   const customerName = readText(form, "customer_name");
   const baseScope = readText(form, "base_scope");
   const baseDeadline = readText(form, "base_deadline");
   const confirmDuplicate = form.get("confirm_duplicate") === "true";
   let itemPayload: unknown;
+  const itemsText = readRawText(form, "items_json");
+  if (exceedsUtf8ByteLimit(itemsText, MAX_OFFER_ITEMS_JSON_BYTES)) {
+    return errorRedirect(context, "Offer items are too large. Reduce the item details and try again.");
+  }
   try {
-    itemPayload = JSON.parse(readText(form, "items_json"));
+    itemPayload = JSON.parse(itemsText);
   } catch {
     return errorRedirect(context, "Add at least one valid work item before saving.");
   }
@@ -101,7 +125,5 @@ export const POST: APIRoute = async (context) => {
     );
   }
 
-  return context.redirect(
-    `/offers/new?created=1&offer=${encodeURIComponent(createdOffer.offer_id)}&customer=${encodeURIComponent(createdOffer.customer_id)}`,
-  );
+  return context.redirect(`/offers/${encodeURIComponent(createdOffer.offer_id)}`);
 };

@@ -129,6 +129,7 @@ begin
       or char_length(v_name) not between 1 and 200
       or jsonb_typeof(v_item -> 'unit') <> 'string'
       or char_length(v_unit) not between 1 and 40
+      or v_unit not in ('piece', 'set', 'm', 'm²', 'm³', 'kg', 'l', 'hour')
       or jsonb_typeof(v_item -> 'specification') <> 'string'
       or char_length(v_specification) not between 1 and 2000
       or jsonb_typeof(v_item -> 'quantity') <> 'number'

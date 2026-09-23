@@ -1,5 +1,11 @@
 import type { APIRoute } from "astro";
 
+import {
+  exceedsUtf8ByteLimit,
+  MAX_OFFER_ITEMS_JSON_BYTES,
+  readBoundedFormData,
+  RequestBodyTooLargeError,
+} from "@/lib/bounded-form-data";
 import { parseOfferItemPayloads } from "@/lib/offer-items";
 import { createClient } from "@/lib/supabase";
 
@@ -25,8 +31,11 @@ export const POST: APIRoute = async (context) => {
 
   let form: FormData;
   try {
-    form = await context.request.formData();
-  } catch {
+    form = await readBoundedFormData(context.request);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return json(413, { error: "Offer request is too large. Reduce the item details and try again." });
+    }
     return json(400, { error: "Submit the offer items again." });
   }
 
@@ -34,6 +43,9 @@ export const POST: APIRoute = async (context) => {
   const itemsText = form.get("items_json");
   if (typeof revisionText !== "string" || !/^[1-9]\d*$/.test(revisionText) || typeof itemsText !== "string") {
     return json(400, { error: "Offer revision or item details are invalid." });
+  }
+  if (exceedsUtf8ByteLimit(itemsText, MAX_OFFER_ITEMS_JSON_BYTES)) {
+    return json(413, { error: "Offer items are too large. Reduce the item details and try again." });
   }
 
   let itemPayload: unknown;

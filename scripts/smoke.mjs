@@ -153,12 +153,9 @@ function primaryItems() {
   ];
 }
 
-function customerIdFromLocation(location) {
-  return new URL(location, BASE_URL).searchParams.get("customer");
-}
-
 function offerIdFromLocation(location) {
-  return new URL(location, BASE_URL).searchParams.get("offer");
+  const url = new URL(location, BASE_URL);
+  return url.searchParams.get("offer") ?? url.pathname.match(/^\/offers\/([0-9a-f-]{36})$/i)?.[1] ?? null;
 }
 
 function itemIdsFromPage(body) {
@@ -175,6 +172,7 @@ function offerTotalFromPage(body) {
 
 const customerName = `Smoke customer ${Date.now()}`;
 const malformedCustomerName = `Malformed items customer ${Date.now()}`;
+const oversizedCustomerName = `Oversized items customer ${Date.now()}`;
 const foreignCustomerName = `Foreign smoke customer ${Date.now()}`;
 const foreignScope = "Foreign contractor private scope";
 let createdCustomerId = null;
@@ -236,6 +234,24 @@ const steps = [
     { status: 302, location: "/offers/new?error=" },
   ],
   [
+    "oversized offer request is rejected before creating a customer",
+    async () => {
+      const rejected = await request("/api/offers", {
+        method: "POST",
+        form: {
+          customer_name: oversizedCustomerName,
+          confirm_duplicate: "false",
+          base_scope: "Must not be saved",
+          base_deadline: today(),
+          items_json: " ".repeat(512 * 1024 + 1),
+        },
+      });
+      if (rejected.status !== 302 || !rejected.location.startsWith("/offers/new?error=")) return rejected;
+      return request(`/offers?q=${encodeURIComponent(oversizedCustomerName)}`);
+    },
+    { status: 200, body: "No matching customers", absentBody: ["Must not be saved"] },
+  ],
+  [
     "malformed item creation leaves no partial customer or offer",
     async () => {
       const rejected = await request("/api/offers", {
@@ -256,7 +272,7 @@ const steps = [
     { status: 200, body: "No matching customers", absentBody: ["Must not be saved"] },
   ],
   [
-    "offer creation redirects to confirmation",
+    "offer creation redirects directly to the saved offer detail",
     async () => {
       const creation = await request("/api/offers", {
         method: "POST",
@@ -268,24 +284,17 @@ const steps = [
           items_json: JSON.stringify(primaryItems()),
         },
       });
-      createdCustomerId = customerIdFromLocation(creation.location);
       offerId = offerIdFromLocation(creation.location);
-      return creation;
+      const form = await request("/offers/new");
+      createdCustomerId = customerIdFromPage(form.body, customerName);
+      const detail = await request(creation.location);
+      return { ...detail, location: creation.location };
     },
-    {
-      status: 302,
-      locationPattern: /^\/offers\/new\?created=1&offer=[0-9a-f-]{36}&customer=[0-9a-f-]{36}$/i,
-      check: () => Boolean(createdCustomerId && offerId),
-    },
-  ],
-  [
-    "new-customer creation confirmation links to the owned customer group",
-    () => request(`/offers/new?created=1&offer=${offerId}&customer=${createdCustomerId}`),
     {
       status: 200,
-      body: ["Offer created", "Review this offer", "View this customer’s offers", "Create another offer"],
-      check: (actual) =>
-        actual.body.includes(`/offers/${offerId}`) && actual.body.includes(`/offers?customer=${createdCustomerId}`),
+      locationPattern: /^\/offers\/[0-9a-f-]{36}$/i,
+      body: ["Offer details", "Smoke-tested original scope"],
+      check: () => Boolean(createdCustomerId && offerId),
     },
   ],
   [
@@ -299,6 +308,15 @@ const steps = [
         JSON.stringify(itemLineAmountsFromPage(actual.body)) === JSON.stringify(["124750", "250"]) &&
         offerTotalFromPage(actual.body) === "125000",
     },
+  ],
+  [
+    "oversized item JSON is rejected before parsing or editing",
+    () =>
+      request(`/api/offers/${offerId}/items`, {
+        method: "POST",
+        form: { expected_revision: "1", items_json: " ".repeat(256 * 1024 + 1) },
+      }),
+    { status: 413, body: "Offer items are too large" },
   ],
   [
     "offer item edit succeeds before change history and advances the revision",
@@ -476,24 +494,14 @@ const steps = [
       });
       reusedCustomerId = customerId;
       reusedOfferId = offerIdFromLocation(created.location);
-      return created;
-    },
-    { status: 302, locationPattern: /^\/offers\/new\?created=1&offer=[0-9a-f-]{36}&customer=[0-9a-f-]{36}$/i },
-  ],
-  [
-    "offer creation confirmation renders",
-    () => request("/offers/new?created=1"),
-    { status: 200, body: "Offer created" },
-  ],
-  [
-    "reused-customer confirmation links to the same group",
-    async () => {
-      return request(`/offers/new?created=1&offer=${reusedOfferId}&customer=${reusedCustomerId}`);
+      const detail = await request(created.location);
+      return { ...detail, location: created.location };
     },
     {
       status: 200,
-      body: "Offer created",
-      check: (actual) => actual.body.includes(`/offers?customer=${reusedCustomerId}`),
+      locationPattern: /^\/offers\/[0-9a-f-]{36}$/i,
+      body: "Smoke-tested reused customer scope",
+      check: () => Boolean(reusedOfferId && reusedCustomerId),
     },
   ],
   [
@@ -535,13 +543,14 @@ const steps = [
         },
         foreignJar,
       );
-      foreignCustomerId = customerIdFromLocation(creation.location);
       foreignOfferId = offerIdFromLocation(creation.location);
+      const foreignForm = await request("/offers/new", {}, foreignJar);
+      foreignCustomerId = customerIdFromPage(foreignForm.body, foreignCustomerName);
       return { ...creation, body: foreignCustomerId ? "foreign-customer-created" : creation.body };
     },
     {
       status: 302,
-      locationPattern: /^\/offers\/new\?created=1&offer=[0-9a-f-]{36}&customer=[0-9a-f-]{36}$/i,
+      locationPattern: /^\/offers\/[0-9a-f-]{36}$/i,
       body: "foreign-customer-created",
     },
   ],

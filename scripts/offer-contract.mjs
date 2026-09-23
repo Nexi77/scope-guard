@@ -88,7 +88,7 @@ async function seedOffer({
       {
         name: `${name} item`,
         quantity: 1,
-        unit: "unit",
+        unit: "piece",
         specification: `${name} test specification`,
         selling_rate_minor: 10_000,
         labor_hours_per_unit: 1,
@@ -177,7 +177,7 @@ async function run() {
       {
         name: "Half-grosz line A",
         quantity: 0.005,
-        unit: "item",
+        unit: "piece",
         specification: "Small allowance",
         selling_rate_minor: 100,
         labor_hours_per_unit: 0.125,
@@ -185,7 +185,7 @@ async function run() {
       {
         name: "Half-grosz line B",
         quantity: 0.005,
-        unit: "item",
+        unit: "piece",
         specification: "Second small allowance",
         selling_rate_minor: 100,
         labor_hours_per_unit: 0.125,
@@ -337,6 +337,7 @@ async function run() {
   for (const [label, item] of [
     ["quantity precision", { ...newOfferRequest.p_items[0], quantity: 0.0001 }],
     ["fractional selling rate", { ...newOfferRequest.p_items[0], selling_rate_minor: 100.5 }],
+    ["unsupported unit", { ...newOfferRequest.p_items[0], unit: "item" }],
   ]) {
     const invalidCustomerName = `Invalid ${label} customer ${runId}`;
     await expectError(
