@@ -24,7 +24,7 @@ function storeCookies(response, session) {
   }
 }
 
-async function request(path, { method = "GET", form } = {}, session = jar) {
+async function request(path, { method = "GET", form, headers = {}, body } = {}, session = jar) {
   const response = await fetch(BASE_URL + path, {
     method,
     redirect: "manual",
@@ -32,13 +32,15 @@ async function request(path, { method = "GET", form } = {}, session = jar) {
       Cookie: cookieHeader(session),
       Origin: BASE_URL,
       ...(form ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
+      ...headers,
     },
-    body: form ? new URLSearchParams(form).toString() : undefined,
+    body: form ? new URLSearchParams(form).toString() : body,
   });
   storeCookies(response, session);
   return {
     status: response.status,
     location: response.headers.get("location") ?? "",
+    headers: response.headers,
     body: await response.text(),
   };
 }
@@ -85,6 +87,34 @@ function customerIdFromPage(body, name) {
   return null;
 }
 
+function offerIdFromPage(body) {
+  const markedOffer = body.match(/data-offer-id="([0-9a-f-]{36})"/i);
+  if (markedOffer) return markedOffer[1];
+  const islands = body.matchAll(/<astro-island\b[^>]*\bprops=(?:"([^"]*)"|'([^']*)')/g);
+  for (const [, doubleQuoted, singleQuoted] of islands) {
+    const encoded = doubleQuoted ?? singleQuoted;
+    const candidates = [encoded.replaceAll("&quot;", '"').replaceAll("&amp;", "&")];
+    try {
+      candidates.push(decodeURIComponent(encoded));
+    } catch {
+      /* keep looking */
+    }
+    try {
+      const decoded = globalThis.atob(encoded.replaceAll("-", "+").replaceAll("_", "/"));
+      candidates.push(
+        decodeURIComponent([...decoded].map((char) => `%${char.charCodeAt(0).toString(16).padStart(2, "0")}`).join("")),
+      );
+    } catch {
+      /* keep looking */
+    }
+    for (const candidate of candidates) {
+      const match = candidate.match(/"offerId"\s*:\s*"([0-9a-f-]{36})"/i);
+      if (match) return match[1];
+    }
+  }
+  return null;
+}
+
 function today() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -99,6 +129,9 @@ const foreignScope = "Foreign contractor private scope";
 let createdCustomerId = null;
 let reusedCustomerId = null;
 let foreignCustomerId = null;
+let offerId = null;
+let foreignOfferId = null;
+let firstGeneratedPin = null;
 
 const steps = [
   ["root redirects to dashboard", () => request("/"), { status: 302, location: "/dashboard" }],
@@ -185,6 +218,85 @@ const steps = [
     "new-customer offer group renders scope, status, current price, and deadline",
     () => request(`/offers?customer=${createdCustomerId}`),
     { status: 200, body: [customerName, "Smoke-tested original scope", "pending", "1", today()] },
+  ],
+  [
+    "offer card exposes configured PIN state without secrets",
+    async () => {
+      const page = await request(`/offers?customer=${createdCustomerId}`);
+      offerId = offerIdFromPage(page.body);
+      return { ...page, body: `${page.body}${page.body.includes("Not configured") ? "Not configured" : ""}` };
+    },
+    { status: 200, body: "Not configured", check: () => Boolean(offerId) },
+  ],
+  [
+    "invalid offer ID is rejected without a candidate PIN",
+    () => request("/api/offers/not-a-uuid/pin", { method: "POST" }),
+    { status: 400, body: "Offer is unavailable" },
+  ],
+  [
+    "cross-origin PIN generation is rejected by Astro",
+    () => request(`/api/offers/${offerId}/pin`, { method: "POST", headers: { Origin: "https://attacker.example" } }),
+    { status: 403, body: "Cross-site POST form submissions are forbidden" },
+  ],
+  [
+    "cross-origin JSON PIN generation is rejected by the API",
+    () =>
+      request(`/api/offers/${offerId}/pin`, {
+        method: "POST",
+        headers: { Origin: "https://attacker.example", "Content-Type": "application/json" },
+        body: "{}",
+      }),
+    { status: 403 },
+  ],
+  [
+    "initial PIN generation is returned once with no-store",
+    async () => {
+      const result = await request(`/api/offers/${offerId}/pin`, { method: "POST" });
+      try {
+        firstGeneratedPin = JSON.parse(result.body).pin;
+      } catch {
+        /* assertion below reports failure */
+      }
+      return result;
+    },
+    {
+      status: 200,
+      check: (actual) => /^\d{6}$/.test(firstGeneratedPin ?? "") && actual.headers.get("cache-control") === "no-store",
+    },
+  ],
+  [
+    "offer refresh shows configured state without rendering PIN or token",
+    () => request(`/offers?customer=${createdCustomerId}`),
+    {
+      status: 200,
+      body: "Configured",
+      absentBody: [firstGeneratedPin ?? "INVALID_PIN_SENTINEL", "share_token", "pin_hash"],
+    },
+  ],
+  [
+    "anonymous PIN generation is rejected",
+    () => request(`/api/offers/${offerId}/pin`, { method: "POST" }, new Map()),
+    { status: 401, body: "Sign in" },
+  ],
+  [
+    "reset returns a different one-time PIN",
+    async () => {
+      const result = await request(`/api/offers/${offerId}/pin`, { method: "POST" });
+      let replacement = "";
+      try {
+        replacement = JSON.parse(result.body).pin ?? "";
+      } catch {
+        /* checked below */
+      }
+      return {
+        ...result,
+        body:
+          /^\d{6}$/.test(replacement) && replacement !== firstGeneratedPin
+            ? "replacement-generated"
+            : "invalid-replacement",
+      };
+    },
+    { status: 200, body: "replacement-generated" },
   ],
   [
     "offer creation reuses an existing customer",
@@ -275,6 +387,16 @@ const steps = [
       locationPattern: /^\/offers\/new\?created=1&customer=[0-9a-f-]{36}$/i,
       body: "foreign-customer-created",
     },
+  ],
+  [
+    "foreign offer PIN cannot be managed by this contractor",
+    async () => {
+      const page = await request(`/offers?customer=${foreignCustomerId}`, {}, foreignJar);
+      foreignOfferId = offerIdFromPage(page.body);
+      if (!foreignOfferId) return { ...page, status: 0, body: "foreign offer unavailable" };
+      return request(`/api/offers/${foreignOfferId}/pin`, { method: "POST" });
+    },
+    { status: 404, body: "PIN could not be managed", absentBody: ["pin_hash", "share_token"] },
   ],
   [
     "invalid customer query shows a safe unavailable state",

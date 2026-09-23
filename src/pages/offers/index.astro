@@ -1,6 +1,7 @@
 ---
 import { AccountMenu } from "@/components/dashboard/AccountMenu";
 import ContractorNavigation from "@/components/dashboard/ContractorNavigation.astro";
+import ManageOfferPin from "@/components/offers/ManageOfferPin";
 import Layout from "@/layouts/Layout.astro";
 import { createClient } from "@/lib/supabase";
 
@@ -16,6 +17,7 @@ interface OfferSummary {
   current_amount_minor: string;
   current_deadline: string;
   created_at: string;
+  pin_configured?: boolean;
 }
 
 const { user } = Astro.locals;
@@ -76,6 +78,19 @@ if (supabase && user) {
         const offerRows = Array.isArray(offerData) ? offerData : [];
         offers = offerRows.slice(0, OFFER_PAGE_SIZE);
         hasNextOfferPage = offerRows.length > OFFER_PAGE_SIZE;
+        if (offers.length > 0) {
+          const { data: pinRows, error: pinError } = await supabase
+            .from("offers")
+            .select("id, pin_hash")
+            .eq("contractor_id", user.id)
+            .in(
+              "id",
+              offers.map((offer) => offer.offer_id),
+            );
+          if (pinError) offersError = true;
+          const configuredById = new Map((pinRows ?? []).map((offer) => [offer.id, offer.pin_hash !== null]));
+          offers = offers.map((offer) => ({ ...offer, pin_configured: configuredById.get(offer.offer_id) ?? false }));
+        }
       }
     }
   }
@@ -192,12 +207,11 @@ const nextOfferHref = (() => {
                     href={`/offers?${new URLSearchParams({ ...(query ? { q: query } : {}), customer: customer.id }).toString()}`}
                     aria-current={selectedCustomer?.id === customer.id ? "true" : undefined}
                     class:list={[
-                      "flex min-h-14 items-center justify-between gap-3 px-4 py-3 text-sm focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none",
+                      "flex min-h-14 items-center justify-start gap-3 px-4 py-3 text-sm focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none",
                       selectedCustomer?.id === customer.id ? "bg-secondary font-medium" : "hover:bg-secondary/60",
                     ]}
                   >
                     <span>{customer.name}</span>
-                    <span class="text-muted-foreground text-xs">{`Record ${customer.id.slice(0, 8)}`}</span>
                   </a>
                 </li>
               ))}
@@ -271,6 +285,13 @@ const nextOfferHref = (() => {
                             <dd class="mt-1 font-semibold">{dateOnly(offer.current_deadline)}</dd>
                           </div>
                         </dl>
+                        <div data-offer-id={offer.offer_id}>
+                          <ManageOfferPin
+                            offerId={offer.offer_id}
+                            configured={offer.pin_configured ?? false}
+                            client:load
+                          />
+                        </div>
                       </li>
                     ))}
                   </ul>

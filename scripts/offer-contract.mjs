@@ -130,6 +130,12 @@ async function run() {
     pinHash,
     revoked: true,
   });
+  const pinOffer = await seedOffer({
+    client: contractorA.client,
+    contractorId: contractorA.id,
+    name: "PIN management",
+    pinHash: null,
+  });
 
   const newCustomerName = `New customer ${runId}`;
   const newOfferRequest = {
@@ -253,7 +259,7 @@ async function run() {
   const { data: ownOffers, error: ownOffersError } = await contractorA.client.from("offers").select("id");
   expectNoError(ownOffersError, "contractor A reads own offers");
   expect(
-    ownOffers.length === 5 && ownOffers.every((offer) => offer.id !== offerB.id),
+    ownOffers.length === 6 && ownOffers.every((offer) => offer.id !== offerB.id),
     "contractor A must not read contractor B's offer",
   );
 
@@ -274,6 +280,10 @@ async function run() {
     }),
     "anonymous offer creation RPC access",
   );
+  await expectError(
+    anonymous.rpc("set_offer_pin", { p_offer_id: pinOffer.id, p_pin: "135790" }),
+    "anonymous offer PIN update access",
+  );
   for (const table of ["customers", "offers", "offer_changes", "change_decisions"]) {
     await expectError(anonymous.from(table).select("id"), `anonymous ${table} table access`);
   }
@@ -284,6 +294,93 @@ async function run() {
   expectNoError(sharedOfferError, "read offer through a valid token");
   expect(sharedOffer?.id === offerA.id, "shared offer RPC must return the token's offer");
   expect(!JSON.stringify(sharedOffer).includes("pin_hash"), "shared offer RPC must not expose pin_hash");
+
+  await expectError(
+    contractorA.client.rpc("set_offer_pin", { p_offer_id: pinOffer.id, p_pin: null }),
+    "set an offer PIN with a missing value",
+  );
+  for (const invalidPin of ["12345", "1234567", "12a456", " 12345"]) {
+    await expectError(
+      contractorA.client.rpc("set_offer_pin", { p_offer_id: pinOffer.id, p_pin: invalidPin }),
+      "set an offer PIN with invalid format",
+    );
+  }
+  await expectError(
+    contractorA.client.rpc("set_offer_pin", { p_offer_id: offerB.id, p_pin: "135790" }),
+    "set a PIN on another contractor's offer",
+  );
+
+  const { data: initialPinResult, error: initialPinError } = await contractorA.client.rpc("set_offer_pin", {
+    p_offer_id: pinOffer.id,
+    p_pin: "135790",
+  });
+  expectNoError(initialPinError, "set an initial offer PIN");
+  expect(initialPinResult === true, "PIN command must return only its minimal success result");
+  expect(
+    !JSON.stringify(initialPinResult).includes("135790") && !JSON.stringify(initialPinResult).includes("$2"),
+    "PIN command result must not contain plaintext or hash material",
+  );
+  const { data: initiallyConfiguredOffer, error: initiallyConfiguredOfferError } = await contractorA.client
+    .from("offers")
+    .select("pin_hash, share_token")
+    .eq("id", pinOffer.id)
+    .single();
+  expectNoError(initiallyConfiguredOfferError, "read initially configured offer contract fields");
+  expect(
+    initiallyConfiguredOffer.pin_hash !== null && initiallyConfiguredOffer.pin_hash !== "135790",
+    "PIN command must persist only a hash",
+  );
+  expect(
+    initiallyConfiguredOffer.share_token === pinOffer.share_token,
+    "initial PIN set must leave the share token unchanged",
+  );
+
+  async function verifyPinWithDecision(pin, context, shouldSucceed) {
+    const changeId = await seedChange(
+      contractorA.client,
+      contractorA.id,
+      pinOffer.id,
+      `${context} verification change`,
+      100,
+    );
+    const request = anonymous.rpc("decide_shared_offer_change", {
+      p_share_token: pinOffer.share_token,
+      p_pin: pin,
+      p_offer_change_id: changeId,
+      p_outcome: "accepted",
+    });
+    if (!shouldSucceed) {
+      await expectError(request, context);
+      const { error: cleanupError } = await contractorA.client.from("offer_changes").delete().eq("id", changeId);
+      expectNoError(cleanupError, `${context}: remove failed verification change`);
+      return;
+    }
+    const { data, error } = await request;
+    expectNoError(error, context);
+    expect(data.outcome === "accepted", `${context}: valid PIN must authorize a decision`);
+  }
+
+  await verifyPinWithDecision("135790", "initial PIN decision verification", true);
+  await expectError(
+    contractorA.client.rpc("set_offer_pin", { p_offer_id: pinOffer.id, p_pin: "135790" }),
+    "reset an offer PIN to its current value",
+  );
+  const { data: resetPinResult, error: resetPinError } = await contractorA.client.rpc("set_offer_pin", {
+    p_offer_id: pinOffer.id,
+    p_pin: "864209",
+  });
+  expectNoError(resetPinError, "reset an offer PIN");
+  expect(resetPinResult === true, "PIN reset must return only its minimal success result");
+  const { data: resetOffer, error: resetOfferError } = await contractorA.client
+    .from("offers")
+    .select("pin_hash, share_token")
+    .eq("id", pinOffer.id)
+    .single();
+  expectNoError(resetOfferError, "read reset offer contract fields");
+  expect(resetOffer.pin_hash !== initiallyConfiguredOffer.pin_hash, "PIN reset must replace the stored hash");
+  expect(resetOffer.share_token === pinOffer.share_token, "PIN reset must leave the share token unchanged");
+  await verifyPinWithDecision("135790", "old PIN after reset", false);
+  await verifyPinWithDecision("864209", "new PIN after reset", true);
 
   await expectError(
     contractorA.client.from("offer_changes").update({ status: "accepted" }).eq("id", acceptedChange),
