@@ -17,6 +17,7 @@ interface CreateOfferFormProps {
   customers: Customer[];
   serverError?: string | null;
   created: boolean;
+  createdCustomerId?: string | null;
 }
 
 type CustomerMode = "existing" | "new";
@@ -24,7 +25,7 @@ type Errors = Partial<Record<"customer" | "scope" | "amount" | "deadline", strin
 
 const today = new Date().toISOString().slice(0, 10);
 
-function CreateOfferForm({ customers, serverError, created }: CreateOfferFormProps) {
+function CreateOfferForm({ customers, serverError, created, createdCustomerId }: CreateOfferFormProps) {
   const [customerMode, setCustomerMode] = useState<CustomerMode>(customers.length ? "existing" : "new");
   const [customerId, setCustomerId] = useState("");
   const [customerName, setCustomerName] = useState("");
@@ -91,12 +92,22 @@ function CreateOfferForm({ customers, serverError, created }: CreateOfferFormPro
           Offer created
         </h2>
         <p className="text-muted-foreground mt-2">The original scope is recorded and ready for future changes.</p>
-        <Button asChild className="mt-6">
-          <a href="/offers/new">
-            <Plus aria-hidden="true" />
-            Create another offer
-          </a>
-        </Button>
+        <div className="mt-6 flex flex-col items-start gap-4">
+          {createdCustomerId ? (
+            <a
+              href={`/offers?customer=${encodeURIComponent(createdCustomerId)}`}
+              className="text-primary focus-visible:ring-ring inline-flex text-sm font-medium underline underline-offset-4 focus-visible:ring-2 focus-visible:outline-none"
+            >
+              View this customer’s offers
+            </a>
+          ) : null}
+          <Button asChild>
+            <a href="/offers/new">
+              <Plus aria-hidden="true" />
+              Create another offer
+            </a>
+          </Button>
+        </div>
       </section>
     );
   }

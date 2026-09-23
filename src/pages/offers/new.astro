@@ -1,5 +1,6 @@
 ---
 import { AccountMenu } from "@/components/dashboard/AccountMenu";
+import ContractorNavigation from "@/components/dashboard/ContractorNavigation.astro";
 import CreateOfferForm from "@/components/offers/CreateOfferForm";
 import Layout from "@/layouts/Layout.astro";
 import { createClient } from "@/lib/supabase";
@@ -11,6 +12,7 @@ const { data: customers, error: customersError } = supabase
   : { data: [], error: null };
 const error = Astro.url.searchParams.get("error");
 const created = Astro.url.searchParams.get("created") === "1";
+const createdCustomerId = Astro.url.searchParams.get("customer");
 ---
 
 <Layout title="Create offer · ScopeGuard">
@@ -26,6 +28,7 @@ const created = Astro.url.searchParams.get("created") === "1";
         <AccountMenu client:load email={user?.email ?? "Account"} />
       </div>
     </header>
+    <ContractorNavigation current="new-offer" />
     <main class="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6 sm:py-14">
       <a
         href="/dashboard"
@@ -47,7 +50,13 @@ const created = Astro.url.searchParams.get("created") === "1";
           Your customers could not be loaded. Refresh the page and try again.
         </p>
       ) : (
-        <CreateOfferForm client:load customers={customers} serverError={error} created={created} />
+        <CreateOfferForm
+          client:load
+          customers={customers}
+          serverError={error}
+          created={created}
+          createdCustomerId={createdCustomerId}
+        />
       )}
     </main>
   </div>

@@ -56,20 +56,32 @@ async function createContractor(label) {
   return { id: data.user.id, client };
 }
 
-async function seedOffer({ client, contractorId, name, pinHash, revoked = false }) {
-  const { data: customer, error: customerError } = await client
-    .from("customers")
-    .insert({ contractor_id: contractorId, name })
-    .select("id")
-    .single();
-  expectNoError(customerError, `seed ${name} customer`);
+async function seedOffer({
+  client,
+  contractorId,
+  name,
+  pinHash,
+  revoked = false,
+  customerId = null,
+  createdAt = null,
+}) {
+  let selectedCustomerId = customerId;
+  if (!selectedCustomerId) {
+    const { data: customer, error: customerError } = await client
+      .from("customers")
+      .insert({ contractor_id: contractorId, name })
+      .select("id")
+      .single();
+    expectNoError(customerError, `seed ${name} customer`);
+    selectedCustomerId = customer.id;
+  }
 
   const token = randomUUID();
   const { data: offer, error: offerError } = await client
     .from("offers")
     .insert({
       contractor_id: contractorId,
-      customer_id: customer.id,
+      customer_id: selectedCustomerId,
       base_scope: `${name} base scope`,
       base_amount_minor: 10_000,
       currency_code: "PLN",
@@ -77,12 +89,13 @@ async function seedOffer({ client, contractorId, name, pinHash, revoked = false 
       share_token: token,
       pin_hash: pinHash,
       share_link_revoked_at: revoked ? new Date().toISOString() : null,
+      ...(createdAt ? { created_at: createdAt } : {}),
     })
     .select("id, share_token")
     .single();
   expectNoError(offerError, `seed ${name} offer`);
 
-  return { ...offer, customerId: customer.id };
+  return { ...offer, customerId: selectedCustomerId };
 }
 
 async function seedChange(client, contractorId, offerId, description, priceDeltaMinor) {
@@ -362,6 +375,101 @@ async function run() {
     rejectedSharedOffer.active_amount_minor === 10_000 &&
       rejectedSharedOffer.active_scope.accepted_changes.length === 0,
     "a rejected change must not alter active offer state",
+  );
+
+  const { data: pageCustomer, error: pageCustomerError } = await contractorA.client
+    .from("customers")
+    .insert({ contractor_id: contractorA.id, name: "Pagination customer" })
+    .select("id")
+    .single();
+  expectNoError(pageCustomerError, "seed pagination customer");
+  const paginationOffers = [];
+  const tiedCreatedAt = "2026-09-01T12:00:00.000Z";
+  for (const name of ["page one", "page two", "page three", "page four"]) {
+    paginationOffers.push(
+      await seedOffer({
+        client: contractorA.client,
+        contractorId: contractorA.id,
+        name,
+        pinHash,
+        customerId: pageCustomer.id,
+        createdAt: tiedCreatedAt,
+      }),
+    );
+  }
+  const tiedOfferIds = paginationOffers.map(({ id }) => id).sort();
+
+  const { data: browseFirstPage, error: browseFirstPageError } = await contractorA.client.rpc("list_customer_offers", {
+    p_customer_id: pageCustomer.id,
+    p_limit: 2,
+  });
+  expectNoError(browseFirstPageError, "read first owned offer page");
+  expect(browseFirstPage.length === 2, "offer page must not exceed its requested limit");
+  expect(
+    browseFirstPage[0].offer_id === tiedOfferIds.at(-1) && browseFirstPage[1].offer_id === tiedOfferIds.at(-2),
+    "equal-timestamp offers must use descending ID tie ordering",
+  );
+  const lastFirstPageOffer = browseFirstPage.at(-1);
+  const { data: browseSecondPage, error: browseSecondPageError } = await contractorA.client.rpc(
+    "list_customer_offers",
+    {
+      p_customer_id: pageCustomer.id,
+      p_limit: 2,
+      p_before_created_at: lastFirstPageOffer.created_at,
+      p_before_id: lastFirstPageOffer.offer_id,
+    },
+  );
+  expectNoError(browseSecondPageError, "continue offer pagination");
+  const pagedIds = [...browseFirstPage, ...browseSecondPage].map((row) => row.offer_id);
+  expect(new Set(pagedIds).size === pagedIds.length, "offer page continuation must not repeat rows");
+  expect(browseSecondPage.length === 2, "continuation must reach the next tied-timestamp offers");
+  const { data: allBrowseRows, error: allBrowseRowsError } = await contractorA.client.rpc("list_customer_offers", {
+    p_customer_id: offerA.customerId,
+    p_limit: 10,
+  });
+  expectNoError(allBrowseRowsError, "read full bounded fixture page");
+  expect(
+    allBrowseRows.find((row) => row.offer_id === offerA.id)?.current_amount_minor === "11500",
+    "current amount must include accepted changes and remain exact minor-unit text",
+  );
+  const pendingChange = await seedChange(contractorA.client, contractorA.id, offerA.id, "Pending browse change", 3_000);
+  expect(pendingChange, "pending change fixture must be created");
+  const { error: rejectedBrowseChangeError } = await anonymous.rpc("decide_shared_offer_change", {
+    p_share_token: offerA.share_token,
+    p_pin: "246810",
+    p_offer_change_id: pendingChange,
+    p_outcome: "rejected",
+    p_rejection_comment: "Rejected browse change",
+  });
+  expectNoError(rejectedBrowseChangeError, "reject browse change through the shared decision flow");
+  const { data: afterPendingChange, error: afterPendingChangeError } = await contractorA.client.rpc(
+    "list_customer_offers",
+    { p_customer_id: offerA.customerId, p_limit: 10 },
+  );
+  expectNoError(afterPendingChangeError, "read totals with pending change");
+  expect(
+    afterPendingChange.find((row) => row.offer_id === offerA.id)?.current_amount_minor === "11500",
+    "pending changes must not affect current amount",
+  );
+  const { data: foreignCustomerPage, error: foreignCustomerPageError } = await contractorA.client.rpc(
+    "list_customer_offers",
+    { p_customer_id: offerB.customerId, p_limit: 10 },
+  );
+  expectNoError(foreignCustomerPageError, "read another contractor's customer page");
+  expect(foreignCustomerPage.length === 0, "foreign customer IDs must return no offers");
+  const { data: unknownCustomerPage, error: unknownCustomerPageError } = await contractorA.client.rpc(
+    "list_customer_offers",
+    { p_customer_id: randomUUID(), p_limit: 10 },
+  );
+  expectNoError(unknownCustomerPageError, "read unknown customer page");
+  expect(unknownCustomerPage.length === 0, "unknown customer IDs must return no offers");
+  await expectError(
+    anonymous.rpc("list_customer_offers", { p_customer_id: offerA.customerId, p_limit: 10 }),
+    "anonymous offer-list RPC access",
+  );
+  expect(
+    !JSON.stringify(browseFirstPage).match(/share_token|pin_hash|pin/i),
+    "offer-list RPC must not expose share tokens or PIN material",
   );
 }
 
