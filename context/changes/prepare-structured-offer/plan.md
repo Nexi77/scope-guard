@@ -238,9 +238,9 @@ The project is not production deployed, and the product owner permits discarding
 
 #### Automated
 
-- [x] 3.1 `npm run lint`, `npm run build`, and `npm run offer-contract` pass against the migrated local schema.
-- [x] 3.2 `npm run smoke` passes against a configured local Supabase environment and covers itemized create, review, edit, auth failure, and existing offer/PIN flows.
+- [x] 3.1 `npm run lint`, `npm run build`, and `npm run offer-contract` pass against the migrated local schema. — 20d715a
+- [x] 3.2 `npm run smoke` passes against a configured local Supabase environment and covers itemized create, review, edit, auth failure, and existing offer/PIN flows. — 20d715a
 
 #### Manual
 
-- [x] 3.3 A reviewer verifies the itemized flow and locked state on mobile and desktop in current Chrome, Safari, Edge, and Firefox, including keyboard use and readable price/effort labels.
+- [x] 3.3 A reviewer verifies the itemized flow and locked state on mobile and desktop in current Chrome, Safari, Edge, and Firefox, including keyboard use and readable price/effort labels. — 20d715a
