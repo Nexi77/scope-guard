@@ -3,7 +3,7 @@ project: ScopeGuard
 version: 1
 status: draft
 created: 2026-09-21
-updated: 2026-09-22
+updated: 2026-09-23
 prd_version: 1
 main_goal: speed
 top_blocker: time
@@ -43,7 +43,7 @@ ScopeGuard gathers agreements about changes raised during a renovation or instal
 | --- | --- | --- | --- | --- | --- |
 | F-01 | minimal-offer-record-contract | (foundation) durable offer, change, and decision records safely separate contractor and customer access | — | FR-001–FR-008; Non-Functional Requirements | done |
 | S-01 | create-client-offer | create a customer and an offer assigned to that customer | F-01 | FR-001 | done |
-| S-02 | browse-client-offers | browse a customer's offers with status, price, and delivery deadline | S-01 | FR-002 | proposed |
+| S-02 | browse-client-offers | browse a customer's offers with status, price, and delivery deadline | S-01 | FR-002 | in-progress |
 | S-03 | manage-offer-pin | set or reset a PIN for a customer or offer | S-01 | FR-008 | proposed |
 | S-04 | record-offer-change | add a change, describe it, and classify its price and deadline impact | S-01 | FR-003 | proposed |
 | S-05 | view-shared-offer | use a permanent link to see only the assigned offer and its current status | S-01, S-04 | FR-005, FR-006 | proposed |
@@ -111,7 +111,7 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **Blockers:** —
 - **Unknowns:** —
 - **Risk:** This capability is independent from customer decisions and should not delay the change-approval path.
-- **Status:** proposed
+- **Status:** in-progress
 
 ### S-03: Manage an offer PIN
 
