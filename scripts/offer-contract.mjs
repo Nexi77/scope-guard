@@ -62,6 +62,7 @@ async function seedOffer({
   name,
   pinHash,
   revoked = false,
+  status = "pending",
   customerId = null,
   createdAt = null,
 }) {
@@ -76,24 +77,42 @@ async function seedOffer({
     selectedCustomerId = customer.id;
   }
 
-  const token = randomUUID();
-  const { data: offer, error: offerError } = await client
+  const { data: created, error: offerError } = await client.rpc("create_offer_with_customer", {
+    p_customer_id: selectedCustomerId,
+    p_customer_name: null,
+    p_confirm_duplicate: false,
+    p_base_scope: `${name} base scope`,
+    p_currency_code: "PLN",
+    p_base_deadline: "2026-12-31",
+    p_items: [
+      {
+        name: `${name} item`,
+        quantity: 1,
+        unit: "unit",
+        specification: `${name} test specification`,
+        selling_rate_minor: 10_000,
+        labor_hours_per_unit: 1,
+      },
+    ],
+  });
+  expectNoError(offerError, `seed ${name} offer`);
+  const offerId = created[0].offer_id;
+  const { error: updateError } = await admin
     .from("offers")
-    .insert({
-      contractor_id: contractorId,
-      customer_id: selectedCustomerId,
-      base_scope: `${name} base scope`,
-      base_amount_minor: 10_000,
-      currency_code: "PLN",
-      base_deadline: "2026-12-31",
-      share_token: token,
+    .update({
       pin_hash: pinHash,
+      status,
       share_link_revoked_at: revoked ? new Date().toISOString() : null,
       ...(createdAt ? { created_at: createdAt } : {}),
     })
+    .eq("id", offerId);
+  expectNoError(updateError, `configure ${name} offer fixture`);
+  const { data: offer, error: readError } = await client
+    .from("offers")
     .select("id, share_token")
+    .eq("id", offerId)
     .single();
-  expectNoError(offerError, `seed ${name} offer`);
+  expectNoError(readError, `read ${name} offer fixture`);
 
   return { ...offer, customerId: selectedCustomerId };
 }
@@ -129,6 +148,7 @@ async function run() {
     name: "revoked",
     pinHash,
     revoked: true,
+    status: "rejected",
   });
   const pinOffer = await seedOffer({
     client: contractorA.client,
@@ -143,9 +163,34 @@ async function run() {
     p_customer_name: newCustomerName,
     p_confirm_duplicate: false,
     p_base_scope: "New customer scope",
-    p_base_amount_minor: 12_345,
     p_currency_code: "PLN",
     p_base_deadline: deadline,
+    p_items: [
+      {
+        name: "Preparation",
+        quantity: 1.25,
+        unit: "m²",
+        specification: "Prepare and install precisely",
+        selling_rate_minor: 9_876,
+        labor_hours_per_unit: 0.75,
+      },
+      {
+        name: "Half-grosz line A",
+        quantity: 0.005,
+        unit: "item",
+        specification: "Small allowance",
+        selling_rate_minor: 100,
+        labor_hours_per_unit: 0.125,
+      },
+      {
+        name: "Half-grosz line B",
+        quantity: 0.005,
+        unit: "item",
+        specification: "Second small allowance",
+        selling_rate_minor: 100,
+        labor_hours_per_unit: 0.125,
+      },
+    ],
   };
   const { data: newOfferRows, error: newOfferError } = await contractorA.client.rpc(
     "create_offer_with_customer",
@@ -157,18 +202,158 @@ async function run() {
 
   const { data: persistedNewOffer, error: persistedNewOfferError } = await contractorA.client
     .from("offers")
-    .select("customer_id, base_scope, base_amount_minor, currency_code, base_deadline")
+    .select("customer_id, base_scope, base_amount_minor, currency_code, base_deadline, items_revision")
     .eq("id", newOffer.offer_id)
     .single();
   expectNoError(persistedNewOfferError, "read newly created offer");
   expect(
     persistedNewOffer.customer_id === newOffer.customer_id &&
       persistedNewOffer.base_scope === "New customer scope" &&
-      persistedNewOffer.base_amount_minor === 12_345 &&
+      persistedNewOffer.base_amount_minor === 12_347 &&
       persistedNewOffer.currency_code === "PLN" &&
-      persistedNewOffer.base_deadline === deadline,
-    "new-customer RPC must persist the requested offer with its returned customer",
+      persistedNewOffer.base_deadline === deadline &&
+      persistedNewOffer.items_revision === 1,
+    "new-customer RPC must persist the item-derived offer with its returned customer",
   );
+
+  const { data: newOfferItems, error: newOfferItemsError } = await contractorA.client
+    .from("offer_items")
+    .select("id, position, line_amount_minor, labor_hours_per_unit")
+    .eq("offer_id", newOffer.offer_id)
+    .order("position");
+  expectNoError(newOfferItemsError, "read newly created offer items");
+  expect(
+    newOfferItems.length === 3 &&
+      newOfferItems[0].line_amount_minor === 12_345 &&
+      newOfferItems[1].line_amount_minor === 1 &&
+      newOfferItems[2].line_amount_minor === 1,
+    "line amounts must round half-grosz upward before summing the offer total",
+  );
+
+  const { data: foreignItems, error: foreignItemsError } = await contractorA.client
+    .from("offer_items")
+    .select("id")
+    .eq("offer_id", offerB.id);
+  expectNoError(foreignItemsError, "query another contractor's offer items");
+  expect(foreignItems.length === 0, "item RLS must hide another contractor's records");
+  const { data: contractorBItems, error: contractorBItemsError } = await contractorB.client
+    .from("offer_items")
+    .select("id")
+    .eq("offer_id", offerB.id);
+  expectNoError(contractorBItemsError, "read owned contractor B item IDs");
+
+  const editedItems = [
+    { ...newOfferRequest.p_items[0], id: newOfferItems[0].id, quantity: 2 },
+    {
+      name: "New edit item",
+      quantity: 1,
+      unit: "m",
+      specification: "Added before change history",
+      selling_rate_minor: 500,
+      labor_hours_per_unit: 0.25,
+    },
+  ];
+  const { data: editedRevision, error: editError } = await contractorA.client.rpc("edit_offer_items", {
+    p_offer_id: newOffer.offer_id,
+    p_expected_revision: 1,
+    p_items: editedItems,
+  });
+  expectNoError(editError, "edit an owned pending offer without history");
+  expect(editedRevision === 2, "successful item edit must advance the revision");
+  const { data: editedOffer, error: editedOfferError } = await contractorA.client
+    .from("offers")
+    .select("base_amount_minor, items_revision")
+    .eq("id", newOffer.offer_id)
+    .single();
+  expectNoError(editedOfferError, "read edited offer total and revision");
+  expect(
+    editedOffer.base_amount_minor === 20_252 && editedOffer.items_revision === 2,
+    "edit must derive the new total from rounded lines and advance its revision",
+  );
+  const { data: retainedItem, error: retainedItemError } = await contractorA.client
+    .from("offer_items")
+    .select("id")
+    .eq("offer_id", newOffer.offer_id)
+    .eq("name", "Preparation")
+    .single();
+  expectNoError(retainedItemError, "read retained item identity");
+  expect(retainedItem.id === newOfferItems[0].id, "editing must preserve retained item IDs");
+
+  await expectError(
+    contractorA.client.rpc("edit_offer_items", {
+      p_offer_id: newOffer.offer_id,
+      p_expected_revision: 1,
+      p_items: editedItems,
+    }),
+    "edit with a stale revision",
+  );
+  await expectError(
+    contractorB.client.rpc("edit_offer_items", {
+      p_offer_id: newOffer.offer_id,
+      p_expected_revision: 2,
+      p_items: editedItems,
+    }),
+    "edit another contractor's offer",
+  );
+  await expectError(
+    contractorA.client.rpc("edit_offer_items", {
+      p_offer_id: newOffer.offer_id,
+      p_expected_revision: 2,
+      p_items: [{ ...editedItems[0], id: contractorBItems[0].id }],
+    }),
+    "retain an item ID from another offer",
+  );
+
+  const { data: rejectedItems, error: rejectedItemsError } = await contractorA.client
+    .from("offer_items")
+    .select("id, name")
+    .eq("offer_id", revokedOffer.id)
+    .order("position");
+  expectNoError(rejectedItemsError, "read items from a non-pending offer without change rows");
+  await expectError(
+    contractorA.client.rpc("edit_offer_items", {
+      p_offer_id: revokedOffer.id,
+      p_expected_revision: 1,
+      p_items: [{ ...newOfferRequest.p_items[0], id: rejectedItems[0].id }],
+    }),
+    "edit an offer that is no longer pending",
+  );
+
+  await expectError(
+    contractorA.client.rpc("create_offer_with_customer", {
+      ...newOfferRequest,
+      p_customer_name: `No items customer ${runId}`,
+      p_items: [],
+    }),
+    "create an offer without items",
+  );
+  const { data: invalidItemsCustomers, error: invalidItemsCustomersError } = await contractorA.client
+    .from("customers")
+    .select("id")
+    .eq("name", `No items customer ${runId}`);
+  expectNoError(invalidItemsCustomersError, "verify invalid item rollback");
+  expect(invalidItemsCustomers.length === 0, "invalid items must roll back the new customer");
+
+  for (const [label, item] of [
+    ["quantity precision", { ...newOfferRequest.p_items[0], quantity: 0.0001 }],
+    ["fractional selling rate", { ...newOfferRequest.p_items[0], selling_rate_minor: 100.5 }],
+  ]) {
+    const invalidCustomerName = `Invalid ${label} customer ${runId}`;
+    await expectError(
+      contractorA.client.rpc("create_offer_with_customer", {
+        ...newOfferRequest,
+        p_customer_name: invalidCustomerName,
+        p_items: [item],
+      }),
+      `create offer with invalid ${label}`,
+    );
+    const { data: invalidCustomerRows, error: invalidCustomerError } = await contractorA.client
+      .from("customers")
+      .select("id")
+      .eq("name", invalidCustomerName);
+    expectNoError(invalidCustomerError, `verify ${label} rollback`);
+    expect(invalidCustomerRows.length === 0, `invalid ${label} must roll back the customer`);
+  }
 
   const { data: reusedOfferRows, error: reusedOfferError } = await contractorA.client.rpc(
     "create_offer_with_customer",
@@ -256,6 +441,50 @@ async function run() {
     2_000,
   );
 
+  for (const [client, offer, label] of [
+    [contractorA.client, offerA, "accepted-change offer"],
+    [contractorB.client, offerB, "rejected-change offer"],
+  ]) {
+    const { data: beforeLock, error: beforeLockError } = await client
+      .from("offers")
+      .select("base_amount_minor, items_revision")
+      .eq("id", offer.id)
+      .single();
+    expectNoError(beforeLockError, `read ${label} before edit lock`);
+    const { data: itemsBeforeLock, error: itemsBeforeLockError } = await client
+      .from("offer_items")
+      .select("id, name")
+      .eq("offer_id", offer.id)
+      .order("position");
+    expectNoError(itemsBeforeLockError, `read ${label} items before edit lock`);
+    await expectError(
+      client.rpc("edit_offer_items", {
+        p_offer_id: offer.id,
+        p_expected_revision: beforeLock.items_revision,
+        p_items: [{ ...newOfferRequest.p_items[0], id: itemsBeforeLock[0].id }],
+      }),
+      `edit ${label} after a change row exists`,
+    );
+    const { data: afterLock, error: afterLockError } = await client
+      .from("offers")
+      .select("base_amount_minor, items_revision")
+      .eq("id", offer.id)
+      .single();
+    expectNoError(afterLockError, `read ${label} after rejected edit`);
+    const { data: itemsAfterLock, error: itemsAfterLockError } = await client
+      .from("offer_items")
+      .select("id, name")
+      .eq("offer_id", offer.id)
+      .order("position");
+    expectNoError(itemsAfterLockError, `read ${label} items after rejected edit`);
+    expect(
+      afterLock.base_amount_minor === beforeLock.base_amount_minor &&
+        afterLock.items_revision === beforeLock.items_revision &&
+        JSON.stringify(itemsAfterLock) === JSON.stringify(itemsBeforeLock),
+      `${label} edit rejection must preserve item rows, total, and revision`,
+    );
+  }
+
   const { data: ownOffers, error: ownOffersError } = await contractorA.client.from("offers").select("id");
   expectNoError(ownOffersError, "contractor A reads own offers");
   expect(
@@ -269,6 +498,10 @@ async function run() {
     .eq("id", offerB.id);
   expectNoError(otherOfferError, "contractor A queries contractor B's offer");
   expect(otherOffer.length === 0, "RLS must hide contractor B's offer from contractor A");
+  await expectError(
+    contractorA.client.from("offers").update({ base_amount_minor: 1 }).eq("id", offerA.id),
+    "directly change an offer total outside the item RPC",
+  );
 
   const anonymous = createClient(url, anonKey, {
     auth: { autoRefreshToken: false, persistSession: false },
@@ -284,7 +517,7 @@ async function run() {
     anonymous.rpc("set_offer_pin", { p_offer_id: pinOffer.id, p_pin: "135790" }),
     "anonymous offer PIN update access",
   );
-  for (const table of ["customers", "offers", "offer_changes", "change_decisions"]) {
+  for (const table of ["customers", "offers", "offer_items", "offer_changes", "change_decisions"]) {
     await expectError(anonymous.from(table).select("id"), `anonymous ${table} table access`);
   }
 
@@ -294,6 +527,12 @@ async function run() {
   expectNoError(sharedOfferError, "read offer through a valid token");
   expect(sharedOffer?.id === offerA.id, "shared offer RPC must return the token's offer");
   expect(!JSON.stringify(sharedOffer).includes("pin_hash"), "shared offer RPC must not expose pin_hash");
+  expect(
+    sharedOffer.active_scope.items.length === 1 &&
+      !JSON.stringify(sharedOffer.active_scope.items).includes("labor_hours_per_unit") &&
+      !JSON.stringify(sharedOffer.active_scope.items).includes("contractor_id"),
+    "shared offer projection must include public item pricing without private effort or ownership fields",
+  );
 
   await expectError(
     contractorA.client.rpc("set_offer_pin", { p_offer_id: pinOffer.id, p_pin: null }),

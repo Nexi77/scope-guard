@@ -47,7 +47,7 @@ ScopeGuard gathers agreements about changes raised during a renovation or instal
 | S-01 | create-client-offer | create a customer and an offer assigned to that customer | F-01 | FR-001 | done |
 | S-02 | browse-client-offers | browse a customer's offers with status, price, and delivery deadline | S-01 | FR-002 | done |
 | S-03 | manage-offer-pin | set or reset a PIN for a customer or offer | S-01 | FR-008 | done |
-| S-08 | prepare-structured-offer | prepare and review an itemized offer that provides a reliable baseline for change estimates | S-01 | FR-001, FR-002; MS-01 | planning |
+| S-08 | prepare-structured-offer | prepare and review an itemized offer that provides a reliable baseline for change estimates | S-01 | FR-001, FR-002; MS-01 | in-progress |
 | S-04 | record-offer-change | estimate a change against agreed work and confirm its explained price and deadline impact | S-01, S-08 | FR-003; Business Logic; MS-02 | proposed |
 | S-05 | view-shared-offer | use a permanent link to see only the assigned offer and its current status | S-01, S-04 | FR-005, FR-006 | proposed |
 | S-06 | decide-change-by-pin | use a permanent link and PIN to approve or reject a pending change | S-03, S-04, S-05 | US-01, FR-007 | proposed |
@@ -132,17 +132,16 @@ Update from the assisted-estimation research on `2026-09-23`: offer creation, br
 
 ### S-08: Prepare a structured offer
 
-- **Outcome:** contractor can prepare and review an itemized offer with named work items, quantities and units, specifications, pricing inputs, and labor-effort assumptions, see calculated line amounts and the offer total, and retain a description for context. Existing text-only offers remain readable; the contractor can explicitly map their scope into items without silently changing the agreed price, deadline, or history.
+- **Outcome:** contractor can prepare and review an itemized offer with named work items, quantities and units, specifications, customer selling rates, and labor-effort assumptions, see calculated line amounts and the offer total, and retain a description for context. Newly created offers require at least one complete item. Current preproduction data may be cleared before enforcement; no legacy mapping is required. S-04 consumes the stable item baseline for change estimates.
 - **Change ID:** prepare-structured-offer
 - **PRD refs:** FR-001, FR-002; MS-01
 - **Prerequisites:** S-01
 - **Parallel with:** S-02, S-03
 - **Blockers:** —
 - **Unknowns:**
-  - How should the contractor reconcile item amounts with an existing lump-sum offer while preserving its agreed total and making any allocation explicit? — Owner: team and contractor. Block: no; resolve during planning before implementation.
-  - Which minimum pricing and effort inputs are required for an item to be marked ready for estimation, and how are incomplete items presented? — Owner: team and contractor. Block: no; resolve during planning before implementation.
+  - None for the initial itemized baseline; newly created offers require complete items, and preproduction offers may be reset before enforcement.
 - **Risk:** This slice must deliver usable offer preparation and a trustworthy baseline; expanding it into a full estimating catalog or silently repricing existing agreements would obscure that outcome.
-- **Status:** planning
+- **Status:** in-progress
 
 ### S-04: Estimate and record an offer change
 

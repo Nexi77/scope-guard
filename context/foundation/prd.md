@@ -68,6 +68,7 @@ Klient wykonawcy. W MVP przegląda i akceptuje konkretną zmianę; szerszy dost�
   > Socrates: Counter-argument considered: dane klienta można byłoby wpisać tylko w ofercie. Resolution: osobny klient pozostaje wymagany, ponieważ umożliwia grupowanie ofert.
 - FR-002: Wykonawca może przeglądać oferty klienta, ich status, koszt i termin realizacji. Priority: must-have
   > Socrates: Counter-argument considered: lista mogłaby pokazywać tylko status. Resolution: koszt i termin pozostają widoczne, ponieważ są potrzebne do szybkiego zarządzania ofertami.
+- FR-009: Wykonawca tworzy nową ofertę z co najmniej jedną nazwaną pozycją zawierającą dodatnią ilość, jednostkę, specyfikację, końcową cenę sprzedaży za jednostkę w groszach oraz nakład pracy w godzinach na jednostkę. Kwota pozycji jest zaokrąglana do grosza, a kwota bazowa oferty jest sumą zaokrąglonych pozycji. Opis i termin pozostają częścią oferty jako kontekst.
 
 ### Zmiany i historia
 
@@ -97,6 +98,8 @@ Klient wykonawcy. W MVP przegląda i akceptuje konkretną zmianę; szerszy dost�
 - Aplikacja obsługuje aktualne wersje Chrome, Safari, Edge i Firefox; kluczowe akcje nie opierają się wyłącznie na kolorze i są dostępne z klawiatury.
 
 ## Business Logic
+
+Pozycja oferty ma stabilny identyfikator, kolejność wyświetlania, ilość z dokładnością do trzech miejsc dziesiętnych, cenę sprzedaży za jednostkę w końcowej kwocie PLN oraz nakład pracy na jednostkę z dokładnością do trzech miejsc. Kwotę pozycji oblicza się jako ilość pomnożoną przez cenę jednostkową i zaokrągla raz do najbliższego grosza; połówki grosza zaokrągla się w górę. Kwota bazowa oferty jest sumą zaokrąglonych kwot pozycji. Wykonawca może poprawić pozycje wyłącznie dla oczekującej oferty, zanim zostanie zapisana jakakolwiek zmiana; poprawka zachowuje identyfikatory istniejących pozycji. Nakład pracy jest założeniem wewnętrznym wykonawcy i nie należy do projekcji udostępnianej klientowi.
 
 Każda zmiana względem zaakceptowanego zakresu jest klasyfikowana przez wykonawcę jako wpływająca albo niewpływająca na koszt i termin, a zmiana wpływająca wymaga ponownej akceptacji klienta, zanim stanie się częścią zlecenia.
 
