@@ -235,10 +235,10 @@ The read contract is additive and requires no backfill. Apply it after the exist
 
 #### Automated
 
-- [x] 3.1 `npm run lint` and `npm run build` pass.
-- [x] 3.2 `npm run offer-contract` and `npm run smoke` pass with configured local Supabase and cover protected browsing, pagination, current values, and creation handoff.
+- [x] 3.1 `npm run lint` and `npm run build` pass. — 8bf0d2c
+- [x] 3.2 `npm run offer-contract` and `npm run smoke` pass with configured local Supabase and cover protected browsing, pagination, current values, and creation handoff. — 8bf0d2c
 
 #### Manual
 
-- [x] 3.3 The dashboard, offer list, and creation page form a usable sidebar flow in light and dark themes on phone and desktop.
-- [x] 3.4 Current Chrome, Safari, Edge, and Firefox show correct offer status, price, deadline, grouping, and pagination without color-only cues.
+- [x] 3.3 The dashboard, offer list, and creation page form a usable sidebar flow in light and dark themes on phone and desktop. — 8bf0d2c
+- [x] 3.4 Current Chrome, Safari, Edge, and Firefox show correct offer status, price, deadline, grouping, and pagination without color-only cues. — 8bf0d2c
