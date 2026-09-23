@@ -95,7 +95,7 @@ Expose on-demand generation and one-time display through the contractor offer li
 
 **Files**: `src/pages/offers/index.astro`, `src/components/offers/ManageOfferPin.tsx`
 
-**Intent**: Place a Manage PIN action on each offer card. Show whether a PIN is configured, distinguish initial generation from reset, confirm replacement before reset, provide a copy control and clear one-time display, and discard the plaintext when the result closes or the page reloads. Keep the component offer-scoped so it can move to an offer details route later.
+**Intent**: Place a Manage PIN action on each offer card. Show whether a PIN is configured, distinguish initial generation from reset, confirm replacement in an accessible in-app Radix AlertDialog, provide a copy control and clear one-time display, and discard the plaintext when the result closes or the page reloads. Keep the component offer-scoped so it can move to an offer details route later.
 
 **Contract**: The card passes only the offer ID and a boolean configured state to the client component. Obtain that boolean through an authenticated owner-scoped server read and do not serialize `pin_hash` or `share_token` to the browser. Existing offer browsing, pagination, and customer isolation remain intact.
 
@@ -113,12 +113,14 @@ Expose on-demand generation and one-time display through the contractor offer li
 
 - `npm run lint`, `npx astro check`, and `npm run build` pass.
 - With local Supabase configured, `npm run offer-contract` and `npm run smoke` pass, including anonymous, foreign-offer, initial-set, reset, and no-secret-render cases.
+- Reset confirmation uses the app's Radix AlertDialog; Cancel and Escape do not reset the PIN, while Confirm starts the reset.
 
 #### Manual Verification:
 
 - On desktop and phone widths, generate and copy a PIN from an offer card, close the result, and confirm the plaintext cannot be redisplayed after reopening or refreshing.
 - Reset a configured PIN, confirm the replacement warning and one-time display, and confirm the same offer link remains valid while the old PIN no longer authorizes a decision.
 - Keyboard users can open, operate, and close the PIN control; status and errors are understandable without relying on color.
+- Reset confirmation is an accessible app dialog: Cancel and Escape leave the PIN unchanged, and focus returns to the trigger after closing.
 
 ---
 
@@ -137,8 +139,8 @@ Expose on-demand generation and one-time display through the contractor offer li
 
 1. Create an offer, open its Manage PIN action, and generate the first PIN.
 2. Copy it, close the result, reopen and refresh; confirm only configured state remains.
-3. Reset it; confirm the warning, copy the new PIN, and verify the old PIN fails while the new PIN works against the contract path.
-4. Check mobile layout and keyboard operation.
+3. Reset it; confirm the in-app warning, then test Cancel and Escape leave the PIN unchanged and return focus to the trigger. Confirm reset, copy the new PIN, and verify the old PIN fails while the new PIN works against the contract path.
+4. Check mobile layout, keyboard operation, and focus behavior in the reset dialog.
 
 ## Performance Considerations
 
@@ -165,22 +167,23 @@ Existing offers retain null `pin_hash` until the contractor generates a PIN. The
 
 #### Automated
 
-- [x] 1.1 Local Supabase migration applies and `npm run offer-contract` passes the new ownership, PIN-format, reset, and token-stability cases.
-- [x] 1.2 `npm run lint` and `npm run build` pass after the migration and contract-test change.
+- [x] 1.1 Local Supabase migration applies and `npm run offer-contract` passes the new ownership, PIN-format, reset, and token-stability cases. — febff26
+- [x] 1.2 `npm run lint` and `npm run build` pass after the migration and contract-test change. — febff26
 
 #### Manual
 
-- [x] 1.3 Review the new RPC grants and return shape to confirm anonymous callers cannot set a PIN or retrieve its hash.
+- [x] 1.3 Review the new RPC grants and return shape to confirm anonymous callers cannot set a PIN or retrieve its hash. — febff26
 
 ### Phase 2: Authenticated endpoint and offer-card experience
 
 #### Automated
 
-- [ ] 2.1 `npm run lint`, `npx astro check`, and `npm run build` pass.
-- [ ] 2.2 With local Supabase configured, `npm run offer-contract` and `npm run smoke` pass, including anonymous, foreign-offer, initial-set, reset, and no-secret-render cases.
+- [x] 2.1 `npm run lint`, `npx astro check`, and `npm run build` pass.
+- [x] 2.2 With local Supabase configured, `npm run offer-contract` and `npm run smoke` pass, including anonymous, foreign-offer, initial-set, reset, and no-secret-render cases.
 
 #### Manual
 
 - [ ] 2.3 On desktop and phone widths, generate and copy a PIN from an offer card, close the result, and confirm the plaintext cannot be redisplayed after reopening or refreshing.
 - [ ] 2.4 Reset a configured PIN, confirm the replacement warning and one-time display, and confirm the same offer link remains valid while the old PIN no longer authorizes a decision.
 - [ ] 2.5 Keyboard users can open, operate, and close the PIN control; status and errors are understandable without relying on color.
+- [x] 2.6 Reset uses an accessible Radix AlertDialog; Cancel and Escape do not reset the PIN and return focus to the trigger, while Confirm initiates reset and focus returns to the trigger. — manually verified in the local browser

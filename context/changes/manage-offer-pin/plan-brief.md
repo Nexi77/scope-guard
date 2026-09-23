@@ -17,14 +17,15 @@ On an offer card, the contractor can generate the first PIN or reset it. The app
 
 ## Key Decisions Made
 
-| Decision | Choice | Why | Source |
-| --- | --- | --- | --- |
-| PIN scope | Per offer | Matches the existing hash field and single-offer share boundary. | Research / archived foundation plan |
-| PIN value | App generates an unpredictable six-digit value | Avoids contractor-chosen predictable PINs. | Plan interview |
-| Initial set | On demand, after offer creation | Keeps the existing creation flow and S-03 separate. | Plan interview |
-| Reset and link | Replace PIN; preserve share token | Credential reset and link revocation are separate actions. | Plan interview |
-| Contractor entry point | Manage PIN on each offer card, portable to a later detail route | Uses the existing offer navigation now. | Plan interview |
-| Reveal | Show once after successful save; no later redisplay | Plaintext should not be stored or leaked through page rendering. | Plan design |
+| Decision               | Choice                                                          | Why                                                                                                  | Source                              |
+| ---------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| PIN scope              | Per offer                                                       | Matches the existing hash field and single-offer share boundary.                                     | Research / archived foundation plan |
+| PIN value              | App generates an unpredictable six-digit value                  | Avoids contractor-chosen predictable PINs.                                                           | Plan interview                      |
+| Initial set            | On demand, after offer creation                                 | Keeps the existing creation flow and S-03 separate.                                                  | Plan interview                      |
+| Reset and link         | Replace PIN; preserve share token                               | Credential reset and link revocation are separate actions.                                           | Plan interview                      |
+| Reset confirmation     | App-native Radix AlertDialog                                    | Make the destructive action clear and keyboard accessible; Cancel and Escape must not reset the PIN. | User-approved Phase 2 amendment     |
+| Contractor entry point | Manage PIN on each offer card, portable to a later detail route | Uses the existing offer navigation now.                                                              | Plan interview                      |
+| Reveal                 | Show once after successful save; no later redisplay             | Plaintext should not be stored or leaked through page rendering.                                     | Plan design                         |
 
 ## Scope
 
@@ -32,7 +33,7 @@ On an offer card, the contractor can generate the first PIN or reset it. The app
 
 - Owner-scoped database PIN set/reset command and contract coverage.
 - Authenticated generation endpoint with a non-cacheable one-time result.
-- Offer-card action, configured state, confirmation before reset, copy control, and app smoke coverage.
+- Offer-card action, configured state, accessible Radix AlertDialog before reset, copy control, and app smoke coverage.
 
 **Out of scope:**
 
@@ -41,14 +42,14 @@ On an offer card, the contractor can generate the first PIN or reset it. The app
 
 ## Architecture / Approach
 
-The authenticated Astro endpoint generates the PIN using a secure random source, calls an authenticated database command to hash and save it for the owned offer, then returns the plaintext once with `Cache-Control: no-store`. A small offer-scoped React control displays and copies the result in transient memory. The offer page exposes a boolean configured state, not the hash or token.
+The authenticated Astro endpoint generates the PIN using a secure random source, calls an authenticated database command to hash and save it for the owned offer, then returns the plaintext once with `Cache-Control: no-store`. A small offer-scoped React control displays and copies the result in transient memory. A Radix AlertDialog confirms resets; only Confirm starts the reset, while Cancel and Escape leave the current PIN intact. The offer page exposes a boolean configured state, not the hash or token.
 
 ## Phases at a Glance
 
-| Phase | What it delivers | Key risk |
-| --- | --- | --- |
-| 1. Owner-scoped PIN write contract | Database operation plus ownership and reset tests | Hash compatibility and cross-contractor access |
-| 2. Authenticated endpoint and offer-card experience | Generation, one-time display, and built-app smoke | Secret leakage or accidental reset |
+| Phase                                               | What it delivers                                                                 | Key risk                                       |
+| --------------------------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------- |
+| 1. Owner-scoped PIN write contract                  | Database operation plus ownership and reset tests                                | Hash compatibility and cross-contractor access |
+| 2. Authenticated endpoint and offer-card experience | Generation, one-time display, accessible reset confirmation, and built-app smoke | Secret leakage or accidental reset             |
 
 **Prerequisites:** Existing offer schema, contractor auth, and local Supabase test environment.  
 **Estimated effort:** About two implementation sessions across two phases.
