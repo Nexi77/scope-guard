@@ -214,13 +214,13 @@ The project is not production deployed, and the product owner permits discarding
 
 #### Automated
 
-- [x] 1.1 The structured-offer migration applies to a fresh local Supabase database and the new RPC grants, item RLS, and direct-write restrictions match the contract.
-- [x] 1.2 Database contract tests prove atomic new/existing-customer creation with at least one item, exact line rounding and total derivation, owner isolation, safe shared projection, and invalid-request rollback.
-- [x] 1.3 Database contract tests prove edits succeed only for an owned pending offer with no change rows and a current revision; foreign, stale, and post-change edits preserve the prior items and total.
+- [x] 1.1 The structured-offer migration applies to a fresh local Supabase database and the new RPC grants, item RLS, and direct-write restrictions match the contract. — a355e69
+- [x] 1.2 Database contract tests prove atomic new/existing-customer creation with at least one item, exact line rounding and total derivation, owner isolation, safe shared projection, and invalid-request rollback. — a355e69
+- [x] 1.3 Database contract tests prove edits succeed only for an owned pending offer with no change rows and a current revision; foreign, stale, and post-change edits preserve the prior items and total. — a355e69
 
 #### Manual
 
-- [x] 1.4 Supabase Studio shows the owner-linked item records and confirms the shared response omits labor effort and other private fields.
+- [x] 1.4 Supabase Studio shows the owner-linked item records and confirms the shared response omits labor effort and other private fields. — a355e69
 
 ### Phase 2: Itemized creation and contractor review
 
