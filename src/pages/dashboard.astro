@@ -1,6 +1,7 @@
 ---
 import Layout from "@/layouts/Layout.astro";
 import { AccountMenu } from "@/components/dashboard/AccountMenu";
+import ContractorNavigation from "@/components/dashboard/ContractorNavigation.astro";
 
 const { user } = Astro.locals;
 const fullName = typeof user?.user_metadata.full_name === "string" ? user.user_metadata.full_name : null;
@@ -19,6 +20,7 @@ const fullName = typeof user?.user_metadata.full_name === "string" ? user.user_m
         <AccountMenu client:load email={user?.email ?? "Account"} showEmail />
       </div>
     </header>
+    <ContractorNavigation current="dashboard" />
 
     <main class="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6 sm:py-14">
       <section class="bg-card max-w-2xl rounded-xl border p-6 shadow-sm sm:p-8" aria-labelledby="dashboard-title">

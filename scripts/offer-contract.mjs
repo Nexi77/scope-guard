@@ -386,26 +386,27 @@ async function run() {
   const paginationOffers = [];
   const tiedCreatedAt = "2026-09-01T12:00:00.000Z";
   for (const name of ["page one", "page two", "page three", "page four"]) {
-    paginationOffers.push(await seedOffer({
-      client: contractorA.client,
-      contractorId: contractorA.id,
-      name,
-      pinHash,
-      customerId: pageCustomer.id,
-      createdAt: tiedCreatedAt,
-    }));
+    paginationOffers.push(
+      await seedOffer({
+        client: contractorA.client,
+        contractorId: contractorA.id,
+        name,
+        pinHash,
+        customerId: pageCustomer.id,
+        createdAt: tiedCreatedAt,
+      }),
+    );
   }
   const tiedOfferIds = paginationOffers.map(({ id }) => id).sort();
 
-  const { data: browseFirstPage, error: browseFirstPageError } = await contractorA.client.rpc(
-    "list_customer_offers",
-    { p_customer_id: pageCustomer.id, p_limit: 2 },
-  );
+  const { data: browseFirstPage, error: browseFirstPageError } = await contractorA.client.rpc("list_customer_offers", {
+    p_customer_id: pageCustomer.id,
+    p_limit: 2,
+  });
   expectNoError(browseFirstPageError, "read first owned offer page");
   expect(browseFirstPage.length === 2, "offer page must not exceed its requested limit");
   expect(
-    browseFirstPage[0].offer_id === tiedOfferIds.at(-1) &&
-      browseFirstPage[1].offer_id === tiedOfferIds.at(-2),
+    browseFirstPage[0].offer_id === tiedOfferIds.at(-1) && browseFirstPage[1].offer_id === tiedOfferIds.at(-2),
     "equal-timestamp offers must use descending ID tie ordering",
   );
   const lastFirstPageOffer = browseFirstPage.at(-1);
@@ -421,26 +422,17 @@ async function run() {
   expectNoError(browseSecondPageError, "continue offer pagination");
   const pagedIds = [...browseFirstPage, ...browseSecondPage].map((row) => row.offer_id);
   expect(new Set(pagedIds).size === pagedIds.length, "offer page continuation must not repeat rows");
-  expect(
-    browseSecondPage.length === 2,
-    "continuation must reach the next tied-timestamp offers",
-  );
-  const { data: allBrowseRows, error: allBrowseRowsError } = await contractorA.client.rpc(
-    "list_customer_offers",
-    { p_customer_id: offerA.customerId, p_limit: 10 },
-  );
+  expect(browseSecondPage.length === 2, "continuation must reach the next tied-timestamp offers");
+  const { data: allBrowseRows, error: allBrowseRowsError } = await contractorA.client.rpc("list_customer_offers", {
+    p_customer_id: offerA.customerId,
+    p_limit: 10,
+  });
   expectNoError(allBrowseRowsError, "read full bounded fixture page");
   expect(
     allBrowseRows.find((row) => row.offer_id === offerA.id)?.current_amount_minor === "11500",
     "current amount must include accepted changes and remain exact minor-unit text",
   );
-  const pendingChange = await seedChange(
-    contractorA.client,
-    contractorA.id,
-    offerA.id,
-    "Pending browse change",
-    3_000,
-  );
+  const pendingChange = await seedChange(contractorA.client, contractorA.id, offerA.id, "Pending browse change", 3_000);
   expect(pendingChange, "pending change fixture must be created");
   const { error: rejectedBrowseChangeError } = await anonymous.rpc("decide_shared_offer_change", {
     p_share_token: offerA.share_token,

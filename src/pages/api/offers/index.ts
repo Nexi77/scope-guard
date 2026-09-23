@@ -5,6 +5,11 @@ import { createClient } from "@/lib/supabase";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+interface CreatedOfferResult {
+  offer_id: string;
+  customer_id: string;
+}
+
 function errorRedirect(context: APIContext, message: string) {
   return context.redirect(`/offers/new?error=${encodeURIComponent(message)}`);
 }
@@ -46,15 +51,17 @@ export const POST: APIRoute = async (context) => {
   if (baseAmount === null) return errorRedirect(context, "Enter a valid non-negative PLN amount.");
   if (!isTodayOrLater(baseDeadline)) return errorRedirect(context, "Deadline must be today or later.");
 
-  const { error } = await supabase.rpc("create_offer_with_customer", {
-    p_customer_id: customerId || null,
-    p_customer_name: customerName || null,
-    p_confirm_duplicate: customerId ? false : confirmDuplicate,
-    p_base_scope: baseScope,
-    p_base_amount_minor: baseAmount.toString(),
-    p_currency_code: "PLN",
-    p_base_deadline: baseDeadline,
-  });
+  const { data, error } = await supabase
+    .rpc("create_offer_with_customer", {
+      p_customer_id: customerId || null,
+      p_customer_name: customerName || null,
+      p_confirm_duplicate: customerId ? false : confirmDuplicate,
+      p_base_scope: baseScope,
+      p_base_amount_minor: baseAmount.toString(),
+      p_currency_code: "PLN",
+      p_base_deadline: baseDeadline,
+    })
+    .overrideTypes<CreatedOfferResult[], { merge: false }>();
 
   if (error) {
     const expectedMessages = new Set([
@@ -71,5 +78,13 @@ export const POST: APIRoute = async (context) => {
     );
   }
 
-  return context.redirect("/offers/new?created=1");
+  const createdOffer = Array.isArray(data) ? data[0] : null;
+  if (!createdOffer || typeof createdOffer.customer_id !== "string" || !UUID_PATTERN.test(createdOffer.customer_id)) {
+    return errorRedirect(
+      context,
+      "The offer was created, but its customer could not be loaded. Open the offers page to find it.",
+    );
+  }
+
+  return context.redirect(`/offers/new?created=1&customer=${encodeURIComponent(createdOffer.customer_id)}`);
 };

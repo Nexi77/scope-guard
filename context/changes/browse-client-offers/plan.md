@@ -210,26 +210,26 @@ The read contract is additive and requires no backfill. Apply it after the exist
 
 #### Automated
 
-- [x] 1.1 The browse migration applies and `npm run offer-contract` passes with a configured local Supabase environment.
-- [x] 1.2 Contract checks prove bounded stable offer pages, contractor isolation, and current values that exclude pending and rejected changes.
+- [x] 1.1 The browse migration applies and `npm run offer-contract` passes with a configured local Supabase environment. — ee65712
+- [x] 1.2 Contract checks prove bounded stable offer pages, contractor isolation, and current values that exclude pending and rejected changes. — ee65712
 
 #### Manual
 
-- [x] 1.3 The read function exposes no share token or PIN material and grants execution only to authenticated callers.
+- [x] 1.3 The read function exposes no share token or PIN material and grants execution only to authenticated callers. — ee65712
 
 ### Phase 2: Customer groups and contractor navigation
 
 #### Automated
 
-- [ ] 2.1 `npm run lint` and `npm run build` pass for the protected routes, shared navigation, and creation redirect.
-- [ ] 2.2 Authenticated browsing renders only owned customer groups and bounded offer pages, including a direct link to a customer outside the first page.
-- [ ] 2.3 The creation success redirect carries the new customer ID to a working browse link without exposing foreign data.
+- [x] 2.1 `npm run lint` and `npm run build` pass for the protected routes, shared navigation, and creation redirect.
+- [x] 2.2 Authenticated browsing renders only owned customer groups and bounded offer pages, including a direct link to a customer outside the first page.
+- [x] 2.3 The creation success redirect carries the new customer ID to a working browse link without exposing foreign data.
 
 #### Manual
 
-- [ ] 2.4 On mobile and desktop, keyboard users can reach the offer list and creation page through visible, clearly labeled navigation; the dashboard shows no offer records.
-- [ ] 2.5 Duplicate customer names remain distinguishable, and offer rows clearly show status, current PLN price, deadline, and a concise original-scope identity.
-- [ ] 2.6 Empty, unavailable, failed-load, and expired-session states are understandable without exposing another contractor's data.
+- [x] 2.4 On mobile and desktop, keyboard users can reach the offer list and creation page through visible, clearly labeled navigation; the dashboard shows no offer records.
+- [x] 2.5 Duplicate customer names remain distinguishable, and offer rows clearly show status, current PLN price, deadline, and a concise original-scope identity.
+- [x] 2.6 Empty, unavailable, failed-load, and expired-session states are understandable without exposing another contractor's data.
 
 ### Phase 3: End-to-end browsing verification
 
