@@ -210,35 +210,35 @@ The read contract is additive and requires no backfill. Apply it after the exist
 
 #### Automated
 
-- [x] 1.1 The browse migration applies and `npm run offer-contract` passes with a configured local Supabase environment. — ee65712
-- [x] 1.2 Contract checks prove bounded stable offer pages, contractor isolation, and current values that exclude pending and rejected changes. — ee65712
+- [x] 1.1 The browse migration applies and `npm run offer-contract` passes with a configured local Supabase environment. — 62a58e0
+- [x] 1.2 Contract checks prove bounded stable offer pages, contractor isolation, and current values that exclude pending and rejected changes. — 62a58e0
 
 #### Manual
 
-- [x] 1.3 The read function exposes no share token or PIN material and grants execution only to authenticated callers. — ee65712
+- [x] 1.3 The read function exposes no share token or PIN material and grants execution only to authenticated callers. — 62a58e0
 
 ### Phase 2: Customer groups and contractor navigation
 
 #### Automated
 
-- [x] 2.1 `npm run lint` and `npm run build` pass for the protected routes, shared navigation, and creation redirect. — 10dc93b
-- [x] 2.2 Authenticated browsing renders only owned customer groups and bounded offer pages, including a direct link to a customer outside the first page. — 10dc93b
-- [x] 2.3 The creation success redirect carries the new customer ID to a working browse link without exposing foreign data. — 10dc93b
+- [x] 2.1 `npm run lint` and `npm run build` pass for the protected routes, shared navigation, and creation redirect. — 62a58e0
+- [x] 2.2 Authenticated browsing renders only owned customer groups and bounded offer pages, including a direct link to a customer outside the first page. — 62a58e0
+- [x] 2.3 The creation success redirect carries the new customer ID to a working browse link without exposing foreign data. — 62a58e0
 
 #### Manual
 
-- [x] 2.4 On mobile and desktop, keyboard users can reach the offer list and creation page through visible, clearly labeled navigation; the dashboard shows no offer records. — 10dc93b
-- [x] 2.5 Duplicate customer names remain distinguishable, and offer rows clearly show status, current PLN price, deadline, and a concise original-scope identity. — 10dc93b
-- [x] 2.6 Empty, unavailable, failed-load, and expired-session states are understandable without exposing another contractor's data. — 10dc93b
+- [x] 2.4 On mobile and desktop, keyboard users can reach the offer list and creation page through visible, clearly labeled navigation; the dashboard shows no offer records. — 62a58e0
+- [x] 2.5 Duplicate customer names remain distinguishable, and offer rows clearly show status, current PLN price, deadline, and a concise original-scope identity. — 62a58e0
+- [x] 2.6 Empty, unavailable, failed-load, and expired-session states are understandable without exposing another contractor's data. — 62a58e0
 
 ### Phase 3: End-to-end browsing verification
 
 #### Automated
 
-- [x] 3.1 `npm run lint` and `npm run build` pass. — 8bf0d2c
-- [x] 3.2 `npm run offer-contract` and `npm run smoke` pass with configured local Supabase and cover protected browsing, pagination, current values, and creation handoff. — 8bf0d2c
+- [x] 3.1 `npm run lint` and `npm run build` pass. — 62a58e0
+- [x] 3.2 `npm run offer-contract` and `npm run smoke` pass with configured local Supabase and cover protected browsing, pagination, current values, and creation handoff. — 62a58e0
 
 #### Manual
 
-- [x] 3.3 The dashboard, offer list, and creation page form a usable sidebar flow in light and dark themes on phone and desktop. — 8bf0d2c
-- [x] 3.4 Current Chrome, Safari, Edge, and Firefox show correct offer status, price, deadline, grouping, and pagination without color-only cues. — 8bf0d2c
+- [x] 3.3 The dashboard, offer list, and creation page form a usable sidebar flow in light and dark themes on phone and desktop. — 62a58e0
+- [x] 3.4 Current Chrome, Safari, Edge, and Firefox show correct offer status, price, deadline, grouping, and pagination without color-only cues. — 62a58e0
