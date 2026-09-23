@@ -1,37 +1,41 @@
 // Smoke test: proves the built app, the Cloudflare adapter and the Supabase auth flow still work together.
 // Zero dependencies on purpose. Run against a live server: BASE_URL=http://localhost:4321 node scripts/smoke.mjs
 
+import { URL } from "node:url";
+
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:4321";
 const email = `smoke-${Date.now()}@example.com`;
+const foreignEmail = `smoke-foreign-${Date.now()}@example.com`;
 const password = "Smoke-Test-Passw0rd!";
 const jar = new Map();
+const foreignJar = new Map();
 
-function cookieHeader() {
-  return [...jar.entries()].map(([k, v]) => `${k}=${v}`).join("; ");
+function cookieHeader(session) {
+  return [...session.entries()].map(([k, v]) => `${k}=${v}`).join("; ");
 }
 
-function storeCookies(response) {
+function storeCookies(response, session) {
   for (const raw of response.headers.getSetCookie()) {
     const [pair, ...attrs] = raw.split(";");
     const [name, ...rest] = pair.split("=");
     const expired = attrs.some((a) => /max-age=0/i.test(a.trim()));
-    if (expired) jar.delete(name.trim());
-    else jar.set(name.trim(), rest.join("="));
+    if (expired) session.delete(name.trim());
+    else session.set(name.trim(), rest.join("="));
   }
 }
 
-async function request(path, { method = "GET", form } = {}) {
+async function request(path, { method = "GET", form } = {}, session = jar) {
   const response = await fetch(BASE_URL + path, {
     method,
     redirect: "manual",
     headers: {
-      Cookie: cookieHeader(),
+      Cookie: cookieHeader(session),
       Origin: BASE_URL,
       ...(form ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
     },
     body: form ? new URLSearchParams(form).toString() : undefined,
   });
-  storeCookies(response);
+  storeCookies(response, session);
   return {
     status: response.status,
     location: response.headers.get("location") ?? "",
@@ -85,11 +89,21 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function customerIdFromLocation(location) {
+  return new URL(location, BASE_URL).searchParams.get("customer");
+}
+
 const customerName = `Smoke customer ${Date.now()}`;
+const foreignCustomerName = `Foreign smoke customer ${Date.now()}`;
+const foreignScope = "Foreign contractor private scope";
+let createdCustomerId = null;
+let reusedCustomerId = null;
+let foreignCustomerId = null;
 
 const steps = [
   ["root redirects to dashboard", () => request("/"), { status: 302, location: "/dashboard" }],
   ["dashboard redirects anonymous user", () => request("/dashboard"), { status: 302, location: "/auth/signin" }],
+  ["offers redirects anonymous user", () => request("/offers"), { status: 302, location: "/auth/signin" }],
   [
     "offer creation redirects anonymous user",
     () =>
@@ -120,6 +134,7 @@ const steps = [
     { status: 302, location: "/dashboard" },
   ],
   ["dashboard renders for signed-in user", () => request("/dashboard"), { status: 200 }],
+  ["offer browser renders signed-in empty state", () => request("/offers"), { status: 200, body: "No customers yet" }],
   ["offer creation form renders for signed-in user", () => request("/offers/new"), { status: 200 }],
   [
     "offer creation rejects invalid submission",
@@ -137,8 +152,8 @@ const steps = [
   ],
   [
     "offer creation redirects to confirmation",
-    () =>
-      request("/api/offers", {
+    async () => {
+      const creation = await request("/api/offers", {
         method: "POST",
         form: {
           customer_name: customerName,
@@ -147,8 +162,29 @@ const steps = [
           base_amount: "1,250.00",
           base_deadline: today(),
         },
-      }),
-    { status: 302, location: "/offers/new?created=1" },
+      });
+      createdCustomerId = customerIdFromLocation(creation.location);
+      return creation;
+    },
+    {
+      status: 302,
+      locationPattern: /^\/offers\/new\?created=1&customer=[0-9a-f-]{36}$/i,
+      check: () => Boolean(createdCustomerId),
+    },
+  ],
+  [
+    "new-customer creation confirmation links to the owned customer group",
+    () => request(`/offers/new?created=1&customer=${createdCustomerId}`),
+    {
+      status: 200,
+      body: ["Offer created", "View this customer’s offers", "Create another offer"],
+      check: (actual) => actual.body.includes(`/offers?customer=${createdCustomerId}`),
+    },
+  ],
+  [
+    "new-customer offer group renders scope, status, current price, and deadline",
+    () => request(`/offers?customer=${createdCustomerId}`),
+    { status: 200, body: [customerName, "Smoke-tested original scope", "pending", "1", today()] },
   ],
   [
     "offer creation reuses an existing customer",
@@ -162,7 +198,7 @@ const steps = [
           body: "Could not find the created customer in the authenticated offer form.",
         };
       }
-      return request("/api/offers", {
+      const created = await request("/api/offers", {
         method: "POST",
         form: {
           customer_id: customerId,
@@ -171,13 +207,89 @@ const steps = [
           base_deadline: today(),
         },
       });
+      reusedCustomerId = customerId;
+      return created;
     },
-    { status: 302, location: "/offers/new?created=1" },
+    { status: 302, locationPattern: /^\/offers\/new\?created=1&customer=[0-9a-f-]{36}$/i },
   ],
   [
     "offer creation confirmation renders",
     () => request("/offers/new?created=1"),
     { status: 200, body: "Offer created" },
+  ],
+  [
+    "reused-customer confirmation links to the same group",
+    async () => {
+      return request(`/offers/new?created=1&customer=${reusedCustomerId}`);
+    },
+    {
+      status: 200,
+      body: "Offer created",
+      check: (actual) => actual.body.includes(`/offers?customer=${reusedCustomerId}`),
+    },
+  ],
+  [
+    "reused-customer group contains both offers with their current values",
+    () => request(`/offers?customer=${reusedCustomerId}`),
+    {
+      status: 200,
+      body: [
+        "Smoke-tested reused customer scope",
+        "Smoke-tested original scope",
+        "2,50 zł",
+        "1250,00 zł",
+        "pending",
+        today(),
+      ],
+    },
+  ],
+  [
+    "foreign contractor creates a private customer for isolation coverage",
+    async () => {
+      const signup = await request(
+        "/api/auth/signup",
+        { method: "POST", form: { email: foreignEmail, password } },
+        foreignJar,
+      );
+      if (signup.status !== 302) return signup;
+      await request("/api/auth/signin", { method: "POST", form: { email: foreignEmail, password } }, foreignJar);
+      const creation = await request(
+        "/api/offers",
+        {
+          method: "POST",
+          form: {
+            customer_name: foreignCustomerName,
+            confirm_duplicate: "false",
+            base_scope: foreignScope,
+            base_amount: "9.99",
+            base_deadline: today(),
+          },
+        },
+        foreignJar,
+      );
+      foreignCustomerId = customerIdFromLocation(creation.location);
+      return { ...creation, body: foreignCustomerId ? "foreign-customer-created" : creation.body };
+    },
+    {
+      status: 302,
+      locationPattern: /^\/offers\/new\?created=1&customer=[0-9a-f-]{36}$/i,
+      body: "foreign-customer-created",
+    },
+  ],
+  [
+    "invalid customer query shows a safe unavailable state",
+    () => request("/offers?customer=invalid"),
+    { status: 200, body: "This customer could not be loaded" },
+  ],
+  [
+    "unknown customer query shows no customer data",
+    () => request("/offers?customer=00000000-0000-4000-8000-000000000000"),
+    { status: 200, body: ["Customer unavailable", "This customer is unavailable"] },
+  ],
+  [
+    "foreign customer query is unavailable and does not reveal its offer",
+    () => request(`/offers?customer=${foreignCustomerId}`),
+    { status: 200, body: "Customer unavailable", absentBody: [foreignCustomerName, foreignScope] },
   ],
   [
     "signout clears session",
@@ -190,14 +302,25 @@ const steps = [
 let failed = 0;
 for (const [name, run, expected] of steps) {
   const actual = await run();
+  const normalizedBody = actual.body.replace(/&nbsp;|&#160;|&#xA0;/gi, " ").replace(/[\s\u00a0\u202f]+/g, " ");
   const ok =
     actual.status === expected.status &&
     (expected.location === undefined || actual.location.startsWith(expected.location)) &&
-    (expected.body === undefined || actual.body.includes(expected.body));
+    (expected.locationPattern === undefined || expected.locationPattern.test(actual.location)) &&
+    (expected.body === undefined ||
+      (Array.isArray(expected.body)
+        ? expected.body.every((value) => normalizedBody.includes(value))
+        : normalizedBody.includes(expected.body))) &&
+    (expected.absentBody === undefined || expected.absentBody.every((value) => !normalizedBody.includes(value))) &&
+    (expected.check === undefined || expected.check(actual));
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}  -> ${actual.status} ${actual.location}`);
   if (!ok) {
     failed++;
-    console.log(`      expected ${expected.status} ${expected.location ?? ""}`);
+    console.log(`      expected ${expected.status} ${expected.location ?? expected.locationPattern ?? ""}`);
+    if (Array.isArray(expected.body)) {
+      const missing = expected.body.filter((value) => !normalizedBody.includes(value));
+      if (missing.length) console.log(`      missing visible text: ${missing.join(" | ")}`);
+    }
     if (actual.status === 0) console.log(`      ${actual.body}`);
   }
 }

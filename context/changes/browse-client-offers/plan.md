@@ -221,24 +221,24 @@ The read contract is additive and requires no backfill. Apply it after the exist
 
 #### Automated
 
-- [x] 2.1 `npm run lint` and `npm run build` pass for the protected routes, shared navigation, and creation redirect.
-- [x] 2.2 Authenticated browsing renders only owned customer groups and bounded offer pages, including a direct link to a customer outside the first page.
-- [x] 2.3 The creation success redirect carries the new customer ID to a working browse link without exposing foreign data.
+- [x] 2.1 `npm run lint` and `npm run build` pass for the protected routes, shared navigation, and creation redirect. — 10dc93b
+- [x] 2.2 Authenticated browsing renders only owned customer groups and bounded offer pages, including a direct link to a customer outside the first page. — 10dc93b
+- [x] 2.3 The creation success redirect carries the new customer ID to a working browse link without exposing foreign data. — 10dc93b
 
 #### Manual
 
-- [x] 2.4 On mobile and desktop, keyboard users can reach the offer list and creation page through visible, clearly labeled navigation; the dashboard shows no offer records.
-- [x] 2.5 Duplicate customer names remain distinguishable, and offer rows clearly show status, current PLN price, deadline, and a concise original-scope identity.
-- [x] 2.6 Empty, unavailable, failed-load, and expired-session states are understandable without exposing another contractor's data.
+- [x] 2.4 On mobile and desktop, keyboard users can reach the offer list and creation page through visible, clearly labeled navigation; the dashboard shows no offer records. — 10dc93b
+- [x] 2.5 Duplicate customer names remain distinguishable, and offer rows clearly show status, current PLN price, deadline, and a concise original-scope identity. — 10dc93b
+- [x] 2.6 Empty, unavailable, failed-load, and expired-session states are understandable without exposing another contractor's data. — 10dc93b
 
 ### Phase 3: End-to-end browsing verification
 
 #### Automated
 
-- [ ] 3.1 `npm run lint` and `npm run build` pass.
-- [ ] 3.2 `npm run offer-contract` and `npm run smoke` pass with configured local Supabase and cover protected browsing, pagination, current values, and creation handoff.
+- [x] 3.1 `npm run lint` and `npm run build` pass.
+- [x] 3.2 `npm run offer-contract` and `npm run smoke` pass with configured local Supabase and cover protected browsing, pagination, current values, and creation handoff.
 
 #### Manual
 
-- [ ] 3.3 The dashboard, offer list, and creation page form a usable sidebar flow in light and dark themes on phone and desktop.
-- [ ] 3.4 Current Chrome, Safari, Edge, and Firefox show correct offer status, price, deadline, grouping, and pagination without color-only cues.
+- [x] 3.3 The dashboard, offer list, and creation page form a usable sidebar flow in light and dark themes on phone and desktop.
+- [x] 3.4 Current Chrome, Safari, Edge, and Firefox show correct offer status, price, deadline, grouping, and pagination without color-only cues.
