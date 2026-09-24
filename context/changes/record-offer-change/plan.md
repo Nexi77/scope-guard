@@ -276,10 +276,10 @@ Migrate existing preproduction structured offers without another reset. Preserve
 
 #### Automated
 
-- [x] 4.1 Contract tests compare exact effective item values and active totals after accepted, agreed, pending, rejected, and superseded proposals.
-- [x] 4.2 Tests prove private fields are absent, shared access stays within one offer, and repeated PIN decisions cannot duplicate effects.
-- [x] 4.3 `npm run lint`, `npm run build`, `npm run offer-contract`, and configured `npm run smoke` pass.
+- [x] 4.1 Contract tests compare exact effective item values and active totals after accepted, agreed, pending, rejected, and superseded proposals. — 566df81
+- [x] 4.2 Tests prove private fields are absent, shared access stays within one offer, and repeated PIN decisions cannot duplicate effects. — 566df81
+- [x] 4.3 `npm run lint`, `npm run build`, `npm run offer-contract`, and configured `npm run smoke` pass. — 566df81
 
 #### Manual
 
-- [x] 4.4 Review contractor and shared representations of a successive accepted change, a rejected change, and a superseded open view; confirm scope, price explanation, and deadline agree.
+- [x] 4.4 Review contractor and shared representations of a successive accepted change, a rejected change, and a superseded open view; confirm scope, price explanation, and deadline agree. — 566df81

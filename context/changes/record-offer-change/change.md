@@ -1,7 +1,7 @@
 ---
 change_id: record-offer-change
 title: Record offer change
-status: implementing
+status: implemented
 created: 2026-09-23
 updated: 2026-09-24
 archived_at: null
