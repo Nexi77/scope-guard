@@ -241,45 +241,45 @@ Migrate existing preproduction structured offers without another reset. Preserve
 
 #### Automated
 
-- [x] 1.1 Contract tests prove base replacement history, exact-revision PIN decisions, idempotent activation, and stale-ID rejection. — 7a4fc9a
-- [x] 1.2 Contract tests prove direct pending/agreed mutation and deletion are denied, including foreign-contractor access. — 7a4fc9a
-- [x] 1.3 A deterministic concurrent-transaction test proves publication, original editing, and customer decision serialize on the offer lock. — 7a4fc9a
+- [x] 1.1 Contract tests prove base replacement history, exact-revision PIN decisions, idempotent activation, and stale-ID rejection. — c4b89cf
+- [x] 1.2 Contract tests prove direct pending/agreed mutation and deletion are denied, including foreign-contractor access. — c4b89cf
+- [x] 1.3 A deterministic concurrent-transaction test proves publication, original editing, and customer decision serialize on the offer lock. — c4b89cf
 
 #### Manual
 
-- [x] 1.4 Review the migration on a local database and confirm a superseded customer view cannot decide the current proposal. — 7a4fc9a
+- [x] 1.4 Review the migration on a local database and confirm a superseded customer view cannot decide the current proposal. — c4b89cf
 
 ### Phase 2: Estimation and Templates
 
 #### Automated
 
-- [x] 2.1 Calculator tests cover half-grosz before/after subtraction, signed reductions, successive changes, exact effort, zero-hour inputs, and amount bounds. — f76d43b
-- [x] 2.2 Tests cover partial-work credit, override reconciliation, missing inputs, incompatible units, and duplicate consequence suppression. — f76d43b
-- [x] 2.3 Tests prove a saved estimate remains unchanged after its template is edited. — f76d43b
+- [x] 2.1 Calculator tests cover half-grosz before/after subtraction, signed reductions, successive changes, exact effort, zero-hour inputs, and amount bounds. — c4b89cf
+- [x] 2.2 Tests cover partial-work credit, override reconciliation, missing inputs, incompatible units, and duplicate consequence suppression. — c4b89cf
+- [x] 2.3 Tests prove a saved estimate remains unchanged after its template is edited. — c4b89cf
 
 #### Manual
 
-- [x] 2.4 A contractor reviews representative cases from all four trades and confirms that prompts reveal missing site facts without presenting example rates as market prices. — f76d43b
+- [x] 2.4 A contractor reviews representative cases from all four trades and confirms that prompts reveal missing site facts without presenting example rates as market prices. — c4b89cf
 
 ### Phase 3: Contractor Workflow
 
 #### Automated
 
-- [x] 3.1 HTTP tests cover successful recording, malformed and oversized requests, stale revisions, anonymous access, and foreign offers. — 2fc9b36
-- [x] 3.2 Lint and build pass: `npm run lint` and `npm run build`. — 2fc9b36
+- [x] 3.1 HTTP tests cover successful recording, malformed and oversized requests, stale revisions, anonymous access, and foreign offers. — c4b89cf
+- [x] 3.2 Lint and build pass: `npm run lint` and `npm run build`. — c4b89cf
 
 #### Manual
 
-- [x] 3.3 On phone and desktop, create a base replacement, a price-changing proposal, and a zero-impact correction; verify clear totals, keyboard access, and actionable errors. — 2fc9b36
+- [x] 3.3 On phone and desktop, create a base replacement, a price-changing proposal, and a zero-impact correction; verify clear totals, keyboard access, and actionable errors. — c4b89cf
 
 ### Phase 4: Current Reads and Decision Verification
 
 #### Automated
 
-- [x] 4.1 Contract tests compare exact effective item values and active totals after accepted, agreed, pending, rejected, and superseded proposals. — 566df81
-- [x] 4.2 Tests prove private fields are absent, shared access stays within one offer, and repeated PIN decisions cannot duplicate effects. — 566df81
-- [x] 4.3 `npm run lint`, `npm run build`, `npm run offer-contract`, and configured `npm run smoke` pass. — 566df81
+- [x] 4.1 Contract tests compare exact effective item values and active totals after accepted, agreed, pending, rejected, and superseded proposals. — c4b89cf
+- [x] 4.2 Tests prove private fields are absent, shared access stays within one offer, and repeated PIN decisions cannot duplicate effects. — c4b89cf
+- [x] 4.3 `npm run lint`, `npm run build`, `npm run offer-contract`, and configured `npm run smoke` pass. — c4b89cf
 
 #### Manual
 
-- [x] 4.4 Review contractor and shared representations of a successive accepted change, a rejected change, and a superseded open view; confirm scope, price explanation, and deadline agree. — 566df81
+- [x] 4.4 Review contractor and shared representations of a successive accepted change, a rejected change, and a superseded open view; confirm scope, price explanation, and deadline agree. — c4b89cf

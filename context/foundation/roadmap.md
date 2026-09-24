@@ -48,7 +48,7 @@ ScopeGuard gathers agreements about changes raised during a renovation or instal
 | S-02 | browse-client-offers | browse a customer's offers with status, price, and delivery deadline | S-01 | FR-002 | done |
 | S-03 | manage-offer-pin | set or reset a PIN for a customer or offer | S-01 | FR-008 | done |
 | S-08 | prepare-structured-offer | prepare and review an itemized offer that provides a reliable baseline for change estimates | S-01 | FR-001, FR-002; MS-01 | done |
-| S-04 | record-offer-change | estimate a change against agreed work and confirm its explained price and deadline impact | S-01, S-08 | FR-003; Business Logic; MS-02 | in-progress |
+| S-04 | record-offer-change | estimate a change against agreed work and confirm its explained price and deadline impact | S-01, S-08 | FR-003; Business Logic; MS-02 | done |
 | S-05 | view-shared-offer | use a permanent link to see only the assigned offer and its current status | S-01, S-04 | FR-005, FR-006 | proposed |
 | S-06 | decide-change-by-pin | use a permanent link and PIN to approve or reject a pending change | S-03, S-04, S-05 | US-01, FR-007 | proposed |
 | S-07 | view-offer-history | see the current offer plus the history of changes and customer decisions | S-04, S-06 | FR-004, FR-005 | proposed |
@@ -154,7 +154,7 @@ Update from the assisted-estimation research on `2026-09-23`: offer creation, br
 - **Unknowns:**
   - Which initial trade templates and contractor-supplied rates are validated, and which site conditions require assessment rather than an automatic estimate? — Owner: team and contractor. Block: no; resolve during planning before implementation.
 - **Risk:** Estimates must use current agreed work and execution progress, distinguish cost from customer price and effort from deadline movement, and keep unresolved impact out of the no-impact correction path.
-- **Status:** in-progress
+- **Status:** done
 
 ### S-05: View a shared offer
 
@@ -233,3 +233,4 @@ Slice boundary: S-08 delivers itemized offer preparation and review, including t
 - **S-02: contractor can browse a customer's offers with their status, price, and delivery deadline.** — Archived 2026-09-23 → `context/archive/2026-09-23-browse-client-offers/`. Lesson: —.
 - **S-03: contractor can set or reset a six-digit PIN for a customer or offer.** — Archived 2026-09-23 → `context/archive/2026-09-23-manage-offer-pin/`. Lesson: —.
 - **S-08: contractor can prepare and review an itemized offer with named work items, quantities and units, specifications, customer selling rates, and labor-effort assumptions, see calculated line amounts and the offer total, and retain a description for context. Newly created offers require at least one complete item. Current preproduction data may be cleared before enforcement; no legacy mapping is required. S-04 consumes the stable item baseline for change estimates.** — Archived 2026-09-23 → `context/archive/2026-09-23-prepare-structured-offer/`. Lesson: —.
+- **S-04: contractor can select affected agreed work, describe the proposed change, reuse trade-specific work templates and rates, and review suggested complexity reasons, cost, labor effort, and conditional deadline impact. The contractor confirms the explained customer price and deadline adjustment before it enters the existing approval or no-impact correction flow.** — Archived 2026-09-24 → `context/archive/2026-09-23-record-offer-change/`. Lesson: —.
