@@ -19,9 +19,10 @@ interface OfferItemsEditorProps {
   onChange: (items: OfferItemDraft[]) => void;
   error?: OfferItemValidationError | null;
   disabled?: boolean;
+  singleItem?: boolean;
 }
 
-function OfferItemsEditor({ items, onChange, error, disabled = false }: OfferItemsEditorProps) {
+function OfferItemsEditor({ items, onChange, error, disabled = false, singleItem = false }: OfferItemsEditorProps) {
   const total = calculateOfferItemsTotal(items);
 
   function updateItem(index: number, field: OfferItemField, value: string) {
@@ -48,10 +49,18 @@ function OfferItemsEditor({ items, onChange, error, disabled = false }: OfferIte
             Add at least one item. The saved total is calculated from these lines.
           </p>
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={addItem} disabled={disabled || items.length >= 100}>
-          <Plus aria-hidden="true" />
-          Add item
-        </Button>
+        {!singleItem ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={addItem}
+            disabled={disabled || items.length >= 100}
+          >
+            <Plus aria-hidden="true" />
+            Add item
+          </Button>
+        ) : null}
       </div>
 
       <div className="space-y-4">
@@ -69,19 +78,21 @@ function OfferItemsEditor({ items, onChange, error, disabled = false }: OfferIte
               <legend className="sr-only">Work item {index + 1}</legend>
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-sm font-semibold">Item {index + 1}</h3>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  aria-label={`Remove item ${index + 1}`}
-                  onClick={() => {
-                    removeItem(index);
-                  }}
-                  disabled={disabled || items.length < 2}
-                >
-                  <Trash2 aria-hidden="true" />
-                  Remove
-                </Button>
+                {!singleItem ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`Remove item ${index + 1}`}
+                    onClick={() => {
+                      removeItem(index);
+                    }}
+                    disabled={disabled || items.length < 2}
+                  >
+                    <Trash2 aria-hidden="true" />
+                    Remove
+                  </Button>
+                ) : null}
               </div>
 
               <Field id={`item-${index}-name`} label="Item name" error={fieldError("name")}>

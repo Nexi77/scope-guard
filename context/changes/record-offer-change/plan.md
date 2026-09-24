@@ -253,24 +253,24 @@ Migrate existing preproduction structured offers without another reset. Preserve
 
 #### Automated
 
-- [x] 2.1 Calculator tests cover half-grosz before/after subtraction, signed reductions, successive changes, exact effort, zero-hour inputs, and amount bounds.
-- [x] 2.2 Tests cover partial-work credit, override reconciliation, missing inputs, incompatible units, and duplicate consequence suppression.
-- [x] 2.3 Tests prove a saved estimate remains unchanged after its template is edited.
+- [x] 2.1 Calculator tests cover half-grosz before/after subtraction, signed reductions, successive changes, exact effort, zero-hour inputs, and amount bounds. — f76d43b
+- [x] 2.2 Tests cover partial-work credit, override reconciliation, missing inputs, incompatible units, and duplicate consequence suppression. — f76d43b
+- [x] 2.3 Tests prove a saved estimate remains unchanged after its template is edited. — f76d43b
 
 #### Manual
 
-- [x] 2.4 A contractor reviews representative cases from all four trades and confirms that prompts reveal missing site facts without presenting example rates as market prices.
+- [x] 2.4 A contractor reviews representative cases from all four trades and confirms that prompts reveal missing site facts without presenting example rates as market prices. — f76d43b
 
 ### Phase 3: Contractor Workflow
 
 #### Automated
 
-- [ ] 3.1 HTTP tests cover successful recording, malformed and oversized requests, stale revisions, anonymous access, and foreign offers.
-- [ ] 3.2 Lint and build pass: `npm run lint` and `npm run build`.
+- [x] 3.1 HTTP tests cover successful recording, malformed and oversized requests, stale revisions, anonymous access, and foreign offers.
+- [x] 3.2 Lint and build pass: `npm run lint` and `npm run build`.
 
 #### Manual
 
-- [ ] 3.3 On phone and desktop, create a base replacement, a price-changing proposal, and a zero-impact correction; verify clear totals, keyboard access, and actionable errors.
+- [x] 3.3 On phone and desktop, create a base replacement, a price-changing proposal, and a zero-impact correction; verify clear totals, keyboard access, and actionable errors.
 
 ### Phase 4: Current Reads and Decision Verification
 

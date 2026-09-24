@@ -218,7 +218,14 @@ const steps = [
   ],
   ["dashboard renders for signed-in user", () => request("/dashboard"), { status: 200 }],
   ["offer browser renders signed-in empty state", () => request("/offers"), { status: 200, body: "No customers yet" }],
-  ["offer creation form renders for signed-in user", () => request("/offers/new"), { status: 200 }],
+  [
+    "offer creation form renders trade template selection for signed-in user",
+    () => request("/offers/new"),
+    {
+      status: 200,
+      body: ["Choose a template (optional)", "Start work items from a trade template", "Starter prompts"],
+    },
+  ],
   [
     "offer creation rejects invalid submission",
     () =>
@@ -577,6 +584,156 @@ const steps = [
       return request(`/api/offers/${foreignOfferId}/pin`, { method: "POST" });
     },
     { status: 404, body: "Offer is unavailable", absentBody: ["pin_hash", "share_token"] },
+  ],
+  [
+    "pending offer revision is recorded atomically",
+    () =>
+      request(`/api/offers/${reusedOfferId}/revision`, {
+        method: "POST",
+        form: {
+          expected_revision: "1",
+          base_scope: "Revised smoke-tested scope",
+          base_deadline: today(),
+          items_json: JSON.stringify(standardItems(300)),
+        },
+      }),
+    { status: 200, body: '"revision":2' },
+  ],
+  [
+    "malformed offer revision is rejected",
+    () =>
+      request(`/api/offers/${reusedOfferId}/revision`, {
+        method: "POST",
+        form: {
+          expected_revision: "2",
+          base_scope: "Malformed revision",
+          base_deadline: today(),
+          items_json: "{",
+        },
+      }),
+    { status: 400, body: "invalid JSON" },
+  ],
+  [
+    "oversized offer revision is rejected",
+    () =>
+      request(`/api/offers/${reusedOfferId}/revision`, {
+        method: "POST",
+        form: {
+          expected_revision: "2",
+          base_scope: "Oversized revision",
+          base_deadline: today(),
+          items_json: " ".repeat(256 * 1024 + 1),
+        },
+      }),
+    { status: 413, body: "Offer items are too large" },
+  ],
+  [
+    "stale offer revision is rejected",
+    () =>
+      request(`/api/offers/${reusedOfferId}/revision`, {
+        method: "POST",
+        form: {
+          expected_revision: "1",
+          base_scope: "Stale revision",
+          base_deadline: today(),
+          items_json: JSON.stringify(standardItems(300)),
+        },
+      }),
+    { status: 409, body: "changed or was accepted" },
+  ],
+  [
+    "change preview rejects malformed and oversized requests",
+    async () => {
+      const malformed = await request(`/api/offers/${reusedOfferId}/changes/preview`, {
+        method: "POST",
+        form: { change_json: "{" },
+      });
+      const oversized = await request(`/api/offers/${reusedOfferId}/changes/preview`, {
+        method: "POST",
+        form: { change_json: " ".repeat(256 * 1024 + 1) },
+      });
+      return { ...oversized, body: `${malformed.body} ${oversized.body} oversized:${oversized.status}` };
+    },
+    { status: 413, body: ["invalid JSON", "oversized:413"] },
+  ],
+  [
+    "change preview rejects stale scope revisions",
+    () =>
+      request(`/api/offers/${reusedOfferId}/changes/preview`, {
+        method: "POST",
+        form: {
+          change_json: JSON.stringify({
+            expected_scope_revision: 999,
+            description: "Stale estimate",
+            target_deadline: today(),
+            effects: [],
+          }),
+        },
+      }),
+    { status: 409, body: "scope changed" },
+  ],
+  [
+    "anonymous change preview is rejected",
+    () =>
+      request(
+        `/api/offers/${reusedOfferId}/changes/preview`,
+        { method: "POST", form: { change_json: "{}" } },
+        new Map(),
+      ),
+    { status: 401, body: "Sign in" },
+  ],
+  [
+    "foreign offer change preview is unavailable",
+    () =>
+      request(`/api/offers/${foreignOfferId}/changes/preview`, {
+        method: "POST",
+        form: { change_json: JSON.stringify({ expected_scope_revision: 1, description: "Foreign", effects: [] }) },
+      }),
+    { status: 404, body: "Offer is unavailable" },
+  ],
+  [
+    "contractor change template is saved for reuse",
+    () =>
+      request(`/api/offers/${reusedOfferId}/templates`, {
+        method: "POST",
+        form: {
+          template_json: JSON.stringify({
+            trade: "painting",
+            name: "Smoke saved painting template",
+            unit: "m²",
+            prompts: ["Confirm substrate."],
+            selling_rate_minor: "12500",
+            labor_hours_per_unit: "0.5",
+            companion_operations: [],
+          }),
+        },
+      }),
+    { status: 201, body: "Smoke saved painting template" },
+  ],
+  [
+    "anonymous contractor cannot save a change template",
+    () =>
+      request(`/api/offers/${reusedOfferId}/templates`, { method: "POST", form: { template_json: "{}" } }, new Map()),
+    { status: 401, body: "Sign in" },
+  ],
+  [
+    "foreign offer cannot be used to save a change template",
+    () =>
+      request(`/api/offers/${foreignOfferId}/templates`, {
+        method: "POST",
+        form: {
+          template_json: JSON.stringify({
+            trade: "painting",
+            name: "Foreign template",
+            unit: "piece",
+            prompts: [],
+            selling_rate_minor: null,
+            labor_hours_per_unit: null,
+            companion_operations: [],
+          }),
+        },
+      }),
+    { status: 404, body: "Offer is unavailable" },
   ],
   [
     "invalid customer query shows a safe unavailable state",

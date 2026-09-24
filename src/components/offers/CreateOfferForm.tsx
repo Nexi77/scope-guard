@@ -13,6 +13,7 @@ import {
   type OfferItemDraft,
   type OfferItemValidationError,
 } from "@/lib/offer-items";
+import type { OfferChangeTemplate } from "@/lib/offer-change-templates";
 
 interface Customer {
   id: string;
@@ -21,6 +22,7 @@ interface Customer {
 
 interface CreateOfferFormProps {
   customers: Customer[];
+  templates: OfferChangeTemplate[];
   serverError?: string | null;
   created: boolean;
   createdOfferId?: string | null;
@@ -32,13 +34,21 @@ type Errors = Partial<Record<"customer" | "scope" | "deadline", string>>;
 
 const today = new Date().toISOString().slice(0, 10);
 
-function CreateOfferForm({ customers, serverError, created, createdOfferId, createdCustomerId }: CreateOfferFormProps) {
+function CreateOfferForm({
+  customers,
+  templates,
+  serverError,
+  created,
+  createdOfferId,
+  createdCustomerId,
+}: CreateOfferFormProps) {
   const [customerMode, setCustomerMode] = useState<CustomerMode>(customers.length ? "existing" : "new");
   const [customerId, setCustomerId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [baseScope, setBaseScope] = useState("");
   const [deadline, setDeadline] = useState("");
   const [items, setItems] = useState<OfferItemDraft[]>([{ ...EMPTY_OFFER_ITEM }]);
+  const [itemTemplateIds, setItemTemplateIds] = useState<Record<string, string>>({});
   const [itemError, setItemError] = useState<OfferItemValidationError | null>(null);
   const [confirmDuplicate, setConfirmDuplicate] = useState(false);
   const [errors, setErrors] = useState<Errors>({});
@@ -56,6 +66,43 @@ function CreateOfferForm({ customers, serverError, created, createdOfferId, crea
     setCustomerMode(mode);
     setConfirmDuplicate(false);
     setErrors((current) => ({ ...current, customer: undefined }));
+  }
+
+  function applyItemTemplate(index: number, templateId: string) {
+    const template = templates.find((candidate) => candidate.id === templateId);
+    const item = items[index];
+    if (templateId === "") {
+      if (item.id !== undefined) {
+        setItemTemplateIds((current) => {
+          return Object.fromEntries(Object.entries(current).filter(([id]) => id !== item.id));
+        });
+      }
+      return;
+    }
+    if (!template) return;
+    const itemId = item.id ?? crypto.randomUUID();
+    setItems((current) =>
+      current.map((candidate, itemIndex) =>
+        itemIndex === index
+          ? {
+              ...candidate,
+              id: itemId,
+              name: template.name,
+              quantity: candidate.quantity || "1",
+              unit: template.unit,
+              specification: candidate.specification || "",
+              sellingRate:
+                template.sellingRateMinor === null
+                  ? ""
+                  : `${BigInt(template.sellingRateMinor) / 100n}.${String(BigInt(template.sellingRateMinor) % 100n).padStart(2, "0")}`,
+              laborHours: template.laborHoursPerUnit ?? "",
+            }
+          : candidate,
+      ),
+    );
+    setItemTemplateIds((current) => {
+      return { ...current, [itemId]: templateId };
+    });
   }
 
   function validate() {
@@ -266,7 +313,72 @@ function CreateOfferForm({ customers, serverError, created, createdOfferId, crea
         )}
       </Field>
 
-      <OfferItemsEditor items={items} onChange={setItems} error={itemError} />
+      <fieldset className="space-y-4 rounded-lg border p-4">
+        <legend className="px-1 text-sm font-semibold">Start work items from a trade template</legend>
+        <p className="text-muted-foreground text-sm">
+          Templates fill item defaults. Starter prompts have no market rates; confirm every rate and effort assumption.
+        </p>
+        {items.map((item, index) => {
+          const selectedId = item.id ? (itemTemplateIds[item.id] ?? "") : "";
+          const selectedTemplate = templates.find((template) => template.id === selectedId);
+          return (
+            <div key={item.id ?? `template-item-${index}`} className="space-y-2">
+              <Field id={`item-${index}-template`} label={`Template for item ${index + 1}`}>
+                {(controlProps) => (
+                  <select
+                    {...controlProps}
+                    className="border-input bg-background h-10 w-full rounded-md border px-3 text-sm"
+                    value={selectedId}
+                    onChange={(event) => {
+                      applyItemTemplate(index, event.target.value);
+                    }}
+                  >
+                    <option value="">Choose a template (optional)</option>
+                    <optgroup label="Starter prompts">
+                      {templates
+                        .filter((template) => template.contractorId === null)
+                        .map((template) => (
+                          <option key={template.id} value={template.id}>
+                            {template.trade} · {template.name}
+                          </option>
+                        ))}
+                    </optgroup>
+                    {templates.some((template) => template.contractorId !== null) ? (
+                      <optgroup label="My saved templates">
+                        {templates
+                          .filter((template) => template.contractorId !== null)
+                          .map((template) => (
+                            <option key={template.id} value={template.id}>
+                              {template.trade} · {template.name}
+                            </option>
+                          ))}
+                      </optgroup>
+                    ) : null}
+                  </select>
+                )}
+              </Field>
+              {selectedTemplate ? (
+                <div className="bg-secondary space-y-1 rounded-md p-3 text-sm" role="status">
+                  {selectedTemplate.prompts.map((prompt) => (
+                    <p key={prompt}>{prompt}</p>
+                  ))}
+                  {selectedTemplate.sellingRateMinor === null || selectedTemplate.laborHoursPerUnit === null ? (
+                    <p>Enter or confirm the selling rate and person-hours before saving this offer.</p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </fieldset>
+      <OfferItemsEditor
+        items={items}
+        onChange={(nextItems) => {
+          setItems(nextItems);
+          setItemError(null);
+        }}
+        error={itemError}
+      />
 
       <div className="grid gap-6 sm:grid-cols-2">
         <Field id="base-deadline" label="Deadline" error={errors.deadline}>

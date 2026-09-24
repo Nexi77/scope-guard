@@ -24,6 +24,7 @@ export interface OfferChangeEstimateInput {
   effects: OfferChangeItemEffect[];
   consequences?: OfferChangeOperation[];
   templateSnapshots?: readonly unknown[];
+  siteFacts?: string | null;
   commercialAdjustmentMinor?: string | null;
   commercialAdjustmentReason?: string | null;
 }
@@ -125,6 +126,17 @@ export function estimateOfferChange(input: OfferChangeEstimateInput): OfferChang
     throw new Error("Estimate exceeds supported item bounds");
   const reasons: string[] = [];
   const missingInputs: string[] = [];
+  const needsTemplateFacts = (input.templateSnapshots ?? []).some(
+    (snapshot) =>
+      snapshot !== null &&
+      typeof snapshot === "object" &&
+      Array.isArray((snapshot as { prompts?: unknown }).prompts) &&
+      (snapshot as { prompts: unknown[] }).prompts.length > 0,
+  );
+  if (needsTemplateFacts && !input.siteFacts?.trim()) {
+    missingInputs.push("Template prompts: confirmed site conditions");
+    reasons.push("The selected work template needs contractor-confirmed site facts.");
+  }
   const itemIds = new Set<string>();
   let itemEffectsDelta = 0n;
   let effortDelta = 0n;
@@ -240,6 +252,7 @@ export function estimateOfferChange(input: OfferChangeEstimateInput): OfferChang
       (op, index, all) => all.findIndex((candidate) => candidate.identity === op.identity) === index,
     ),
     template_snapshots: structuredClone(input.templateSnapshots ?? []),
+    confirmed_site_facts: input.siteFacts && input.siteFacts.trim().length > 0 ? input.siteFacts.trim() : null,
     item_effects_delta_minor: itemEffectsDelta.toString(),
     omission_credit_suggestion_minor: omissionSuggestionComplete ? omissionSuggestion.toString() : null,
     confirmed_omission_credit_minor: confirmedOmissionCredit?.toString() ?? null,

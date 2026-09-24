@@ -14,6 +14,7 @@ import {
   templateIsReady,
 } from "../src/lib/offer-change-templates.ts";
 import type { OfferItemPayload } from "../src/lib/offer-items.ts";
+import { publishOfferChangeImpact } from "../src/lib/offer-change-publish.ts";
 
 type TestItem = OfferItemPayload & { id: string };
 type EstimateOverrides = Omit<Partial<OfferChangeEstimateInput>, "effects"> & {
@@ -194,4 +195,27 @@ void test("starter trade templates have prompts but no invented rates and snapsh
   mutable.prompts.push("New condition");
   assert.equal((estimateSnapshot.snapshot.template_snapshots as { name: string }[])[0].name, "Painted area");
   assert.equal((estimateSnapshot.snapshot.template_snapshots as { prompts: string[] }[])[0].prompts.length, 3);
+});
+
+void test("selected template prompts require confirmed site facts before an estimate is ready", () => {
+  const template = snapshotOfferChangeTemplate(STARTER_OFFER_CHANGE_TEMPLATES[0]);
+  const missingFacts = estimateOfferChange({ scopeRevision: 1, effects: [], templateSnapshots: [template] });
+  assert.equal(missingFacts.status, "needs_assessment");
+  assert.ok(missingFacts.missingInputs.includes("Template prompts: confirmed site conditions"));
+
+  const complete = estimateOfferChange({
+    scopeRevision: 1,
+    effects: [],
+    templateSnapshots: [template],
+    siteFacts: "Room is empty; substrate is plaster in good condition.",
+  });
+  assert.equal(complete.status, "ready");
+  assert.equal(complete.snapshot.confirmed_site_facts, "Room is empty; substrate is plaster in good condition.");
+});
+
+void test("publishing a zero-impact correction keeps explicit zero deltas for the database command", () => {
+  assert.deepEqual(publishOfferChangeImpact(0n, 0), {
+    p_price_delta_minor: "0",
+    p_deadline_delta_days: 0,
+  });
 });
