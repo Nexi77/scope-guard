@@ -7,11 +7,26 @@ repository: ScopeGuard
 topic: Assisted estimation of offer-change complexity, cost, and time
 tags: [research, offer-changes, estimating, business-logic]
 status: complete
-last_updated: 2026-09-23
+last_updated: 2026-09-24
 last_updated_by: Codex
+last_updated_note: Revalidated against implemented S-08; appended current S-04 recommendations and superseded findings.
+last_research_at: 2026-09-24T07:03:05Z
+last_research_git_commit: c94f974b4dac4324801a28e29fd8526520bcd895
 ---
 
 # Research: assisted estimation of offer changes
+
+## Current recommendation after S-08
+
+**Use the implemented offer items as the original baseline. Build S-04 around explained customer-price and labor-effort changes, reusable consequence templates, and an accepted item-change history. Keep the original items intact once history starts.**
+
+S-08 now supplies quantities, units, specifications, customer selling rates, private labor-hours assumptions, exact line rounding, and guarded original-item editing. The earlier recommendations to introduce those fields and map legacy text offers are superseded. Internal costs and markup are not part of the implemented pricing model. Sources: `supabase/migrations/20260924000000_structured_offers.sql:14–37`, `:306–329`; `context/archive/2026-09-23-prepare-structured-offer/plan-brief.md:21–28`.
+
+The remaining core problem is how accepted changes alter the next estimate's baseline. Current shared reads combine original items with accepted descriptions and aggregate deltas; they do not produce revised item quantities. S-04 needs an effective item projection, immutable proposal inputs, and a revision for active scope. Source: `supabase/migrations/20260924000000_structured_offers.sql:352–398`.
+
+Read [the post-S-08 findings](#follow-up-2026-09-24--fit-to-implemented-s-08) for the current planning handoff, arithmetic examples, and outstanding decisions. The original investigation below is retained as historical evidence; the follow-up adjudicates its conclusions individually.
+
+## Original investigation — 2026-09-23
 
 ## Research Question
 
@@ -190,3 +205,101 @@ The investigation answers the approach and integration question; recipe accuracy
 6. How should first-offer acceptance interact with changes? Creation currently produces a pending offer without a base-offer decision row (`supabase/migrations/20260922000000_create_client_offer.sql:85–101`; base status default at `20260921000000_minimal_offer_record_contract.sql:18`). Do not infer customer acceptance merely from the existence of a baseline. Resolve eligibility to submit amendments in the approval-flow plan.
 
 Research coverage: main-agent review of PRD, shaping notes, roadmap, lessons, current change, decisive SQL/API paths, and primary web sources; parallel read-only investigation of current schema/routes/tests and external estimating methods. No deployment or live database verification, market-rate validation, or implementation-effort benchmark was performed.
+
+## Follow-up 2026-09-24 — fit to implemented S-08
+
+### Scope and evidence
+
+Revalidated on branch `feat/record-offer-change`, commit `c94f974b4dac4324801a28e29fd8526520bcd895`, at `2026-09-24T07:03:05Z`. The worktree was clean before this documentation update. The main investigation inspected the updated PRD, archived S-08 brief, item helpers/editor/detail/API paths, and decisive migration code. Read-only parallel investigations covered the migration/decision contracts and archived plan/review versus actual test assertions.
+
+This is a source-based research update, not a fresh deployment verification or implementation review. No database reset, application changes, builds, or test suites were run. The earlier external estimating research remains background; this follow-up does not claim to refresh vendor documentation or validate market rates.
+
+### What S-08 settled — and what earlier conclusions it supersedes
+
+- **Structured baseline is implemented.** `offer_items` supplies stable IDs, ordering, quantities, units, specifications, selling rates, and effort assumptions. Creation derives the base total from the submitted items. New offers no longer depend on a manually entered aggregate amount (`supabase/migrations/20260924000000_structured_offers.sql:14–37`, `:275–284`; `src/pages/api/offers/index.ts:65–94`). The old “text-only offer” finding is historical.
+- **Pricing basis is settled for this implementation.** Use customer selling rates in final PLN amounts; internal cost, markup, and tax calculation were excluded from S-08 (`context/archive/2026-09-23-prepare-structured-offer/plan-brief.md:22`, `:39`; `context/foundation/prd.md:71`, `:102`). S-04 should label its result “price adjustment.” A rate multiplied by quantity cannot establish contractor cost or profit. The earlier cost-plus-markup suggestion is an optional future extension, not the default S-04 algorithm.
+- **Legacy mapping is out of the current scope.** The adopted preproduction approach requires an empty offers table before the structured migration (`supabase/migrations/20260924000000_structured_offers.sql:1–7`). The approved brief explicitly excludes legacy conversion (`context/archive/2026-09-23-prepare-structured-offer/plan-brief.md:25`, `:39`). Do not add the earlier lazy text-to-items bridge to S-04, and do not interpret that historical reset choice as authorization for another reset.
+- **Rounding and units are implemented.** Under the item RPC, quantities and effort inputs have up to three fractional digits; quantities are positive and effort is nonnegative. Each nonnegative line is rounded half-up to a grosz before summing. Supported units are `piece`, `set`, `m`, `m²`, `m³`, `kg`, `l`, and `hour` (`supabase/migrations/20260924000000_structured_offers.sql:20–28`, `:130–160`; `supabase/migrations/20260924010000_enforce_supported_offer_item_units.sql:1–3`; `src/lib/offer-items.ts:54–61`, `:124–150`). Reuse this contract, rather than choosing another precision scheme for offers.
+- **Original edits are guarded, with a bounded guarantee.** Direct authenticated writes to original offers/items are revoked. The edit RPC locks the owned offer, checks pending status, absence of a currently existing change row, and expected `items_revision`, then advances that revision (`supabase/migrations/20260924000000_structured_offers.sql:43–55`, `:306–329`). Change insertion now acquires the same parent lock (`supabase/migrations/20260924020000_serialize_offer_change_inserts.sql:8–18`). This supersedes the earlier finding that original offers remain directly editable by contractors; it does not establish a permanent “history has ever existed” flag.
+- **Private effort is already excluded from sharing.** The shared RPC explicitly selects public item fields without labor assumptions (`supabase/migrations/20260924000000_structured_offers.sql:363–374`). Preserve that projection boundary when adding explanations.
+
+Still valid: deterministic templates, explained consequence rules, contractor confirmation, no automatic deadline inference from hours alone, rejection exclusion, and PIN-protected idempotent decisions. The initial-offer acceptance question remains unresolved; creating structured items still does not record a customer baseline decision (`context/archive/2026-09-23-prepare-structured-offer/plan-brief.md:59`; `supabase/migrations/20260924000000_structured_offers.sql:275–284`).
+
+### Revised S-04 business logic
+
+The following is a recommendation for planning, not existing behavior.
+
+**Start from the effective item state.** Select an item by ID and show its current agreed quantity, specification, selling rate, and private effort rate. Offer operations to change quantity, replace specification, remove remaining work, or add new work. Copy existing inputs as defaults; require confirmation of changed assumptions. A generic `set` or free-text specification does not reveal whether materials, disposal, or testing are included. Capture those inclusions before proposing extra charges.
+
+**Automate uncomplicated amendments immediately.** When the affected work is unstarted, its omitted portion is fully creditable, and no consequential work or commercial override applies:
+
+```text
+line(q, r) = round_half_up(q × r)       # r is an integer number of grosz
+price_delta = line(new_quantity, new_rate) − line(old_quantity, old_rate)
+effort_delta = new_quantity × new_hours_per_unit
+             − old_quantity × old_hours_per_unit
+```
+
+Apply this to affected effective items, not repeatedly to original items. Removed work has no after-state; it should not be passed as a zero-quantity original item because S-08 rejects such quantities. Adding work creates a new stable item identity. Changing a unit requires an explicit conversion or a replacement operation; the existing unit list contains no conversion model.
+
+**Rounding example derived from the implemented rule:** assume the same item changes from `0.500` to `1.000` units at `1` grosz per unit. Its before/after amounts are both `1` grosz, so the price delta is `0`. Rounding `(1.000 − 0.500) × 1` independently produces `1` grosz and would overstate this line's adjustment. For line-preserving amendments, subtract rounded totals. Source rule: `src/lib/offer-items.ts:218–230`; SQL equivalent at `supabase/migrations/20260924000000_structured_offers.sql:157–160`.
+
+**Practical example with hypothetical contractor inputs:** an unstarted painting item changes from `20.000` to `25.000 m²`, with an unchanged final selling rate of PLN `40.00/m²` and `0.250` labor hours/m². With no setup or other consequences, price increases by `PLN 1,000 − PLN 800 = PLN 200`; estimated effort increases by `6.250 − 5.000 = 1.250 hours`. After this is accepted, increasing to `30.000 m²` compares against `25.000`, yielding another PLN `200` and `1.250 hours`. Pending or rejected proposals leave the comparison at the previously active quantity. These are illustrative inputs, not validated rates.
+
+**Handle executed work separately.** Ask how much affected work is completed and whether an omitted component is still creditable. A partly executed bundle may need its remaining work and credit allocated by the contractor; quantity and a bundled selling rate alone do not determine that allocation. Add explicit removal, disposal, restoration, extra visits, or other consequence lines when applicable:
+
+```text
+proposed price delta = new work selling amount
+                     + consequential work selling amounts
+                     − confirmed omission credit
+                     + explicit commercial adjustment
+```
+
+Preserve completed work's agreed value unless a separate concession changes it. Do not credit its whole original price merely because the desired final specification changes. Retained charges and concessions need visible reconciliation so the customer-facing breakdown still explains the aggregate offer price. Record both the computed suggestion and any contractor override with its reason.
+
+**Keep useful reusable templates within S-04.** Templates can prefill an operation's name, supported unit, specification prompts, contractor selling rate, and labor hours per unit, plus conditional companion operations. Painting, tiling, electrical, and plumbing can share this format. Start with contractor-confirmed templates and reuse an existing item's inputs; do not infer trade-specific prices from its name. A full resource-cost catalog is unnecessary. Selecting installed work, for example, can prompt removal/restoration operations, while missing route length or unknown substrate marks the estimate as needing assessment. Avoid duplicate setup/restoration across companion operations.
+
+**Complexity remains reason-based.** Use routine / additional work / needs assessment with explicit reasons and missing inputs. Do not multiply the customer selling rate by a universal complexity score. Separate price readiness, effort readiness, and deadline readiness. Zero hours is a valid explicit S-08 input, not a missing-input sentinel (`src/lib/offer-items.ts:104–105`; `supabase/migrations/20260924000000_structured_offers.sql:25–26`).
+
+**Calculate effort; confirm the deadline.** The stored labor-hours field is a contractor planning assumption, with no captured crew/capacity/calendar semantics. Define its use as person-hours before adding duration conversion. Multiplying quantities and per-unit hours may yield finer precision than either input; preserve calculation precision and round display separately. Show effort changes immediately, but derive a contractual calendar-day delta from a contractor-confirmed target date and the current active deadline. Capacity, delivery, curing, overlap, and spare time remain missing scheduling facts. Source for existing calendar-day aggregation: `supabase/migrations/20260924000000_structured_offers.sql:352–361`.
+
+### Integration needed beyond the estimator form
+
+**Preserve original items and project accepted item effects.** Recommended model: keep S-08's original item records; attach immutable before/after item effects and estimate evidence to change proposals. Produce a canonical effective item set by applying accepted/agreed effects in a persisted activation order. This is item-level change history, not full offer versioning. New items introduced by accepted changes must remain targetable by subsequent changes. Use the same effective projection for estimation and later current-offer views.
+
+Today `get_shared_offer` returns stored original items under `active_scope.items`, while price incorporates accepted/agreed aggregate deltas. The decision RPC updates decision/status records but neither items nor item revision (`supabase/migrations/20260924000000_structured_offers.sql:352–398`; `supabase/migrations/20260921000000_minimal_offer_record_contract.sql:290–318`). That is the decisive S-04 integration gap. Do not rewrite `offer_items`/`base_amount_minor` on acceptance while also adding the same change delta to the base: that would count the amendment twice. Current item values and retained-charge/override adjustments must reconcile with the base-plus-deltas price.
+
+**Separate scope freshness from original-item edit revision.** `items_revision` currently advances on original edits, not accepted changes (`supabase/migrations/20260924000000_structured_offers.sql:323–329`). Introduce an active-scope revision or explicitly extend revision semantics. Capture it when estimating, compare under the offer lock when recording and activating a change, and advance it when accepted/agreed item effects become active. A single pending impacting proposal does not prevent a no-impact correction from changing its baseline. Prefer blocking active corrections while an impacting proposal is pending for MVP, or explicitly invalidate and regenerate the pending proposal; do not silently apply a stale proposal.
+
+**Enforce calculation and history contracts at the database command boundary.** Authenticated direct change writes remain granted, while the decision-protection trigger freezes accepted/rejected rows but not agreed rows (`supabase/migrations/20260921000000_minimal_offer_record_contract.sql:111–116`, `:132`; `supabase/migrations/20260921010000_protect_customer_decisions.sql:11–27`). Pending/agreed deletion can remove the row that currently locks original edits. The new insert trigger serializes insertion, but does not validate estimates or protect updates/deletions. S-04 should restrict direct mutations and use controlled commands, with ownership, proposal identity, revision, arithmetic, and projected-total validation. Preserve durable agreed corrections as well as customer decisions. Keep unfinished drafts separate from final no-impact corrections; unknown impact must not become `agreed` via null deltas.
+
+**Reuse existing components selectively.** Reuse the item input types, supported units, validation, and line arithmetic from `src/lib/offer-items.ts`, plus `OfferItemsEditor` where its form fits. Use the original-detail screen as the entry point, but label original versus effective scope: it deliberately reads and displays the base amount/items today (`src/pages/offers/[offerId].astro:42–66`, `:117–182`). Follow the existing bounded request parsing in creation/edit routes (`src/pages/api/offers/index.ts:49–74`; `src/pages/api/offers/[offerId]/items.ts:32–58`). Do not call `apply_offer_items` for a draft amendment: it deletes omitted baseline rows and writes original items (`supabase/migrations/20260924000000_structured_offers.sql:106–112`, `:187–200`).
+
+**Adapt signed money and serialization deliberately.** Item validators accept nonnegative inputs; change adjustments may be negative. `formatMinorAmount` uses a signed remainder directly, so it is not a suitable signed-adjustment formatter without adaptation (`src/lib/offer-items.ts:234–237`). The HTTP helper restricts numeric rates to safe JSON integers, while SQL permits a larger bigint bound (`src/lib/offer-items.ts:50–51`, `:99–102`; `supabase/migrations/20260924000000_structured_offers.sql:23–24`). Define exact serialization for totals and signed deltas instead of extending the preview through unchecked floating-point arithmetic.
+
+### Evidence-backed validation targets
+
+The existing suites contain assertions for per-line half-grosz rounding, item-derived totals, retained IDs/revisions, stale/foreign edit rejection, rollback of invalid creation, and private-field exclusion (`scripts/offer-contract.mjs:168–356`, `:525–536`). HTTP tests cover successful edits, malformed/stale requests, and anonymous/foreign access (`scripts/smoke.mjs:322–388`, `:558–570`). These are inspected assertions, not test runs performed in this follow-up.
+
+Relevant limitations to address while implementing S-04:
+
+- The fixtures named accepted/rejected in the item-lock test are still pending at that point; decisions occur later (`scripts/offer-contract.mjs:445–486`, `:669–705`). Test the terminal outcomes explicitly and compare full item inputs, not just the current `id,name` subset.
+- The test labeled pending-total exclusion rejects the row before reading (`scripts/offer-contract.mjs:772–789`). Add an outstanding-pending assertion for both effective quantities and price.
+- The shared projection test checks item count and absence of private field names, not exact public amounts (`scripts/offer-contract.mjs:525–536`). Verify effective public item values and explanation privacy.
+- The archived review states that the insert/edit concurrency fix was not exercised with held concurrent transactions (`context/archive/2026-09-23-prepare-structured-offer/reviews/impl-review.md:47`). Add a deterministic race check for estimate submission versus baseline editing/activation.
+
+Estimator-specific coverage should prove rounded-before/after subtraction, signed reductions, successive accepted changes, rejected/pending exclusion, zero-price but changed-scope corrections, partial completion and credit allocation, duplicate consequence prevention, idempotent activation, stale proposal rejection, and preservation of saved estimates after template edits. Test effort separately from calendar dates and prevent an unknown deadline from being treated as zero impact.
+
+### Current planning handoff and unresolved choices
+
+S-04 no longer needs another structured-offer prerequisite. Build on S-08: effective item projection and controlled change recording, before/after estimation, reusable consequence templates, and explained contractor confirmation. The customer-decision and shared/history slices must consume that same proposal contract; a recording-only UI cannot by itself establish correctness after acceptance.
+
+Before finalizing a plan, settle these remaining product choices:
+
+1. **Initial acceptance:** how is the original offer accepted, and when may the contractor propose amendments? Preserve the PIN/customer contract rather than treating item creation as acceptance.
+2. **Price versus internal cost:** recommended S-04 scope is selling-price and effort assistance using the adopted model. If internal cost estimation remains required, it needs separate cost inputs; it cannot be inferred from selling rates.
+3. **Executed-work credits and overrides:** which allocations require explicit confirmation, and how are retained charges/concessions displayed alongside current work?
+4. **Template coverage and schedule assumptions:** validate initial recipes across the requested trades; retain a needs-assessment path for unsupported conditions. Confirm whether labor inputs represent person-hours and whether conditional scheduling plus a contractor-confirmed date is sufficient.
+5. **Pending proposal policy:** decide whether to freeze published proposals and block intervening active corrections, or support explicit invalidation/reissue with a new proposal revision. Recommendation for MVP: freeze the published proposal and serialize active changes.
+
+The earlier open questions about introducing itemization, selecting the baseline pricing basis, and building legacy mapping are resolved by S-08. The roadmap's detailed S-08 entry is marked done, but its handoff still recommends planning S-08 and its open questions still describe pricing/conversion as undecided (`context/foundation/roadmap.md:133–144`, `:203–215`). Treat those individual entries as stale; this research does not modify roadmap lifecycle or archived artifacts.
