@@ -46,7 +46,7 @@ export interface OfferChangeEstimate {
   snapshot: Record<string, unknown>;
 }
 
-const MAX_AMOUNT_MINOR = 9_999_999_999_999_999n;
+export const MAX_AMOUNT_MINOR = 9_999_999_999_999_999n;
 const UNIT_VALUES = new Set<string>(OFFER_ITEM_UNITS.map(({ value }) => value));
 
 function decimalScaled(value: number | string, scale: bigint, places: number): bigint | null {

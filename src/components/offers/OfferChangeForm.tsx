@@ -1,12 +1,12 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import OfferItemsEditor from "@/components/offers/OfferItemsEditor";
-import { formatPersonHours, formatSignedMinorAmount } from "@/lib/offer-change-estimator";
-import { draftFromOfferItem, parseOfferItemDrafts, type OfferItemDraft } from "@/lib/offer-items";
+import { formatPersonHours, formatSignedMinorAmount, type OfferChangeItemEffect } from "@/lib/offer-change-estimator";
+import { draftFromOfferItem, formatMinorAmount, parseOfferItemDrafts, type OfferItemDraft } from "@/lib/offer-items";
 import { parsePlnAmount } from "@/lib/pln";
 import { OFFER_ITEM_UNITS } from "@/lib/offer-items";
 import type { OfferChangeTemplate } from "@/lib/offer-change-templates";
@@ -26,29 +26,38 @@ function numericStringOrNull(value: unknown): string | null {
   return typeof value === "number" && Number.isSafeInteger(value) ? String(value) : null;
 }
 
+function estimateAmount(value: unknown, signed = false): string {
+  if (typeof value !== "string" || !/^-?(?:0|[1-9]\d*)$/.test(value)) return "Needs assessment";
+  const minor = BigInt(value);
+  return signed ? formatSignedMinorAmount(minor) : formatMinorAmount(minor);
+}
+
 export default function OfferChangeForm({
   offerId,
   scopeRevision,
   items,
   activeDeadline,
-  hasPendingProposal,
+  pendingProposalId,
   templates,
 }: {
   offerId: string;
   scopeRevision: number;
   items: Item[];
   activeDeadline: string;
-  hasPendingProposal: boolean;
+  pendingProposalId: string | null;
   templates: OfferChangeTemplate[];
 }) {
   const [selectedId, setSelectedId] = useState(items[0]?.id ?? "new");
+  const [itemAction, setItemAction] = useState<"update" | "remove" | "replace">("update");
+  const newItemId = useRef<string | null>(null);
   const [draft, setDraft] = useState<OfferItemDraft>(() =>
     items[0]
       ? draftFromOfferItem(items[0])
       : { name: "", quantity: "", unit: "", specification: "", sellingRate: "", laborHours: "" },
   );
-  const [completedQuantity, setCompletedQuantity] = useState("0");
-  const [confirmedCredit, setConfirmedCredit] = useState("0");
+  const [completedQuantity, setCompletedQuantity] = useState("");
+  const [confirmedCredit, setConfirmedCredit] = useState("");
+  const [creditDecisionConfirmed, setCreditDecisionConfirmed] = useState(false);
   const [description, setDescription] = useState("");
   const [deadline, setDeadline] = useState(activeDeadline);
   const [adjustment, setAdjustment] = useState("0");
@@ -65,21 +74,59 @@ export default function OfferChangeForm({
   const [selectedCompanionIdentity, setSelectedCompanionIdentity] = useState("");
   const [siteFacts, setSiteFacts] = useState("");
   const [estimate, setEstimate] = useState<Record<string, unknown> | null>(null);
+  const [previewedInputsKey, setPreviewedInputsKey] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [templateBusy, setTemplateBusy] = useState(false);
   const [templateNotice, setTemplateNotice] = useState("");
   const [availableTemplates, setAvailableTemplates] = useState(templates);
   const [saveTrade, setSaveTrade] = useState<OfferChangeTemplate["trade"]>("painting");
+  const hasPendingProposal = pendingProposalId !== null;
   const current = items.find((item) => item.id === selectedId) ?? null;
   const isNew = selectedId === "new";
-  const lowerQuantity = current !== null && Number(draft.quantity.replace(",", ".")) < Number(current.quantity);
   const unitChanged = current !== null && draft.unit !== current.unit;
+  const itemEffectAction =
+    current === null
+      ? "add"
+      : itemAction === "remove"
+        ? "remove"
+        : itemAction === "replace" || unitChanged
+          ? "replace"
+          : "update";
+  const needsCredit =
+    current !== null &&
+    (itemEffectAction === "remove" ||
+      itemEffectAction === "replace" ||
+      Number(draft.quantity.replace(",", ".")) < Number(current.quantity));
   const selectedTemplate = availableTemplates.find((template) => template.id === selectedTemplateId) ?? null;
+  const inputsKey = JSON.stringify({
+    selectedId,
+    itemAction,
+    draft,
+    completedQuantity,
+    confirmedCredit,
+    description,
+    deadline,
+    adjustment,
+    adjustmentReason,
+    includeConsequence,
+    consequenceName,
+    consequenceQuantity,
+    consequenceUnit,
+    consequenceRate,
+    consequenceHours,
+    selectedCompanionIdentity,
+    selectedTemplateId,
+    siteFacts,
+    replacementConfirmed,
+  });
+  const currentEstimate = previewedInputsKey === inputsKey ? estimate : null;
+  const ready = currentEstimate?.status === "ready";
 
   function applyTemplate(id: string) {
     setSelectedTemplateId(id);
     setReplacementConfirmed(false);
+    setEstimate(null);
     const template = availableTemplates.find((candidate) => candidate.id === id);
     if (!template) return;
     setDraft({
@@ -94,7 +141,6 @@ export default function OfferChangeForm({
           : `${BigInt(template.sellingRateMinor) / 100n}.${String(BigInt(template.sellingRateMinor) % 100n).padStart(2, "0")}`,
       laborHours: template.laborHoursPerUnit ?? "",
     });
-    setEstimate(null);
   }
 
   async function saveTemplate() {
@@ -152,6 +198,7 @@ export default function OfferChangeForm({
       };
       setAvailableTemplates((currentTemplates) => [...currentTemplates, saved]);
       setSelectedTemplateId(saved.id);
+      setEstimate(null);
       setTemplateNotice("Template saved to your reusable templates.");
     } catch {
       setError("We couldn't reach the server. Check your connection and try again.");
@@ -162,6 +209,7 @@ export default function OfferChangeForm({
 
   function applyCompanion(identity: string) {
     setSelectedCompanionIdentity(identity);
+    setEstimate(null);
     const operation = selectedTemplate?.companionOperations.find((candidate) => candidate.identity === identity);
     if (!operation) return;
     setIncludeConsequence(true);
@@ -173,11 +221,15 @@ export default function OfferChangeForm({
         : `${BigInt(operation.sellingRateMinor) / 100n}.${String(BigInt(operation.sellingRateMinor) % 100n).padStart(2, "0")}`,
     );
     setConsequenceHours(operation.laborHoursPerUnit ?? "");
-    setEstimate(null);
   }
 
   function selectItem(id: string) {
     setSelectedId(id);
+    setItemAction("update");
+    newItemId.current = null;
+    setCompletedQuantity("");
+    setConfirmedCredit("");
+    setCreditDecisionConfirmed(false);
     setReplacementConfirmed(false);
     const item = items.find((candidate) => candidate.id === id);
     setDraft(
@@ -191,9 +243,26 @@ export default function OfferChangeForm({
 
   async function send(action: "preview" | "record") {
     setError("");
-    const parsed = parseOfferItemDrafts([draft], true);
-    if ("error" in parsed) {
+    if (action === "record" && !ready) {
+      setError("Preview the current change details before recording them.");
+      return;
+    }
+    if (action === "record" && needsCredit && !creditDecisionConfirmed) {
+      setError("Confirm the completed quantity and omission credit before recording, including when either is zero.");
+      return;
+    }
+    const submittedInputsKey = inputsKey;
+    const parsed = itemAction === "remove" && current ? null : parseOfferItemDrafts([draft], true);
+    if (parsed && "error" in parsed) {
       setError(parsed.error.message);
+      return;
+    }
+    if (!isNew && !current) {
+      setError("The selected work item is unavailable. Reload the offer.");
+      return;
+    }
+    if (unitChanged && itemAction === "update" && !replacementConfirmed) {
+      setError("Confirm that changing the unit will replace the selected work item.");
       return;
     }
     if (!description.trim()) {
@@ -208,32 +277,55 @@ export default function OfferChangeForm({
       setError("Confirm that recording this proposal will replace the currently pending proposal.");
       return;
     }
-    const creditMinor = lowerQuantity ? parsePlnAmount(confirmedCredit) : 0n;
+    const completedText = completedQuantity.trim().replace(",", ".");
+    if (
+      needsCredit &&
+      completedText &&
+      (!/^(?:0|[1-9]\d*)(?:\.\d{1,3})?$/.test(completedText) || Number(completedText) > Number(current.quantity))
+    ) {
+      setError("Enter a completed quantity from zero up to the original quantity, with at most three decimal places.");
+      return;
+    }
+    const creditMinor = needsCredit && confirmedCredit.trim() ? parsePlnAmount(confirmedCredit) : null;
     const adjustmentText = adjustment.trim();
     const adjustmentNegative = adjustmentText.startsWith("-") || adjustmentText.startsWith("−");
     const adjustmentMinorAbs = parsePlnAmount(adjustmentNegative ? adjustmentText.slice(1) : adjustmentText);
-    if (creditMinor === null || adjustmentMinorAbs === null) {
+    if ((needsCredit && confirmedCredit.trim() && creditMinor === null) || adjustmentMinorAbs === null) {
       setError("Enter valid PLN amounts with up to two decimal places.");
       return;
     }
-    const effectId = current?.id ?? crypto.randomUUID();
     const beforeItems = current ? parseOfferItemDrafts([draftFromOfferItem(current)], true) : null;
     if (beforeItems && "error" in beforeItems) {
       setError(beforeItems.error.message);
       return;
     }
-    const effect = {
-      itemId: effectId,
-      before: beforeItems ? beforeItems.items[0] : null,
-      after: { ...parsed.items[0], id: effectId },
-      replacementConfirmed: !unitChanged || replacementConfirmed,
-      ...(lowerQuantity ? { completedQuantity, confirmedOmissionCreditMinor: String(creditMinor) } : {}),
-    };
+    const before = beforeItems ? beforeItems.items[0] : null;
+    const after = parsed?.items[0] ?? null;
+    const effects: OfferChangeItemEffect[] = [];
+    if (current && before) {
+      effects.push({
+        itemId: current.id,
+        before,
+        after: itemEffectAction === "update" && after ? { ...after, id: current.id } : null,
+        ...(needsCredit && completedText ? { completedQuantity: completedText } : {}),
+        ...(needsCredit && creditMinor !== null ? { confirmedOmissionCreditMinor: String(creditMinor) } : {}),
+      });
+    }
+    if ((itemEffectAction === "add" || itemEffectAction === "replace") && after) {
+      const addedId = (newItemId.current ??= crypto.randomUUID());
+      effects.push({ itemId: addedId, before: null, after: { ...after, id: addedId } });
+    }
+    if (effects.length === 0) {
+      setError("Review the affected work item and try again.");
+      return;
+    }
     const change = {
       expected_scope_revision: scopeRevision,
+      expected_pending_change_id: pendingProposalId,
+      supersession_confirmed: hasPendingProposal && supersessionConfirmed,
       description,
       target_deadline: deadline,
-      effects: [effect],
+      effects,
       consequences: includeConsequence
         ? [
             {
@@ -263,7 +355,10 @@ export default function OfferChangeForm({
       const result = (await response.json()) as { error?: string; estimate?: Record<string, unknown> };
       if (!response.ok) {
         setError(result.error ?? "The change could not be processed.");
-        if (result.estimate) setEstimate(result.estimate);
+        if (result.estimate) {
+          setEstimate(result.estimate);
+          setPreviewedInputsKey(submittedInputsKey);
+        }
         return;
       }
       if (action === "record") {
@@ -271,6 +366,7 @@ export default function OfferChangeForm({
         return;
       }
       setEstimate(result.estimate ?? null);
+      setPreviewedInputsKey(submittedInputsKey);
     } catch {
       setError("We couldn't reach the server. Check your connection and try again.");
     } finally {
@@ -278,7 +374,6 @@ export default function OfferChangeForm({
     }
   }
 
-  const ready = estimate?.status === "ready";
   return (
     <div className="space-y-5">
       <Field id="affected-item" label="Affected agreed work">
@@ -301,6 +396,34 @@ export default function OfferChangeForm({
           </select>
         )}
       </Field>
+      {current ? (
+        <Field id="item-action" label="What will happen to this work item?">
+          {(props) => (
+            <select
+              {...props}
+              className="border-input bg-background h-10 w-full rounded-md border px-3 text-sm"
+              value={itemAction}
+              onChange={(event) => {
+                const nextAction = event.target.value as "update" | "remove" | "replace";
+                setItemAction(nextAction);
+                setCreditDecisionConfirmed(false);
+                newItemId.current = null;
+                setReplacementConfirmed(false);
+                if (nextAction === "remove") {
+                  setSelectedTemplateId("");
+                  setSiteFacts("");
+                }
+                setEstimate(null);
+              }}
+              disabled={busy}
+            >
+              <option value="update">Change quantity or details</option>
+              <option value="remove">Remove this work item</option>
+              <option value="replace">Replace with a new work item</option>
+            </select>
+          )}
+        </Field>
+      ) : null}
       <Field id="change-template" label="Work template">
         {(props) => (
           <select
@@ -310,7 +433,7 @@ export default function OfferChangeForm({
             onChange={(event) => {
               applyTemplate(event.target.value);
             }}
-            disabled={busy}
+            disabled={busy || itemAction === "remove"}
           >
             <option value="">Choose a trade template</option>
             <optgroup label="Starter prompts">
@@ -394,7 +517,7 @@ export default function OfferChangeForm({
         <Button
           type="button"
           variant="outline"
-          disabled={templateBusy}
+          disabled={templateBusy || itemAction === "remove"}
           onClick={() => {
             void saveTemplate();
           }}
@@ -407,17 +530,24 @@ export default function OfferChangeForm({
           </p>
         ) : null}
       </div>
-      <OfferItemsEditor
-        items={[draft]}
-        singleItem
-        onChange={(next) => {
-          if (next[0].unit !== draft.unit) setReplacementConfirmed(false);
-          setDraft(next[0]);
-          setEstimate(null);
-        }}
-        disabled={busy}
-      />
-      {unitChanged ? (
+      {itemAction === "remove" && current ? (
+        <p className="bg-secondary rounded-md p-4 text-sm">
+          This proposal removes {current.name} ({current.quantity} {current.unit}) from future work. Confirm completed
+          work and the omission credit below.
+        </p>
+      ) : (
+        <OfferItemsEditor
+          items={[draft]}
+          singleItem
+          onChange={(next) => {
+            if (next[0].unit !== draft.unit) setReplacementConfirmed(false);
+            setDraft(next[0]);
+            setEstimate(null);
+          }}
+          disabled={busy}
+        />
+      )}
+      {unitChanged && itemAction === "update" ? (
         <label className="flex items-start gap-3 rounded-md border p-3 text-sm">
           <input
             type="checkbox"
@@ -429,12 +559,10 @@ export default function OfferChangeForm({
             disabled={busy}
             className="accent-primary mt-0.5 size-4"
           />
-          <span>
-            This unit change is a replacement. Confirm that the before and after values are comparable as stated.
-          </span>
+          <span>Changing the unit replaces this work item with a new item identity. Confirm this replacement.</span>
         </label>
       ) : null}
-      {!isNew && lowerQuantity ? (
+      {current && needsCredit ? (
         <div className="grid gap-4 sm:grid-cols-2">
           <Field id="completed-quantity" label={`Completed quantity (of ${current.quantity})`}>
             {(props) => (
@@ -444,6 +572,8 @@ export default function OfferChangeForm({
                 value={completedQuantity}
                 onChange={(event) => {
                   setCompletedQuantity(event.target.value);
+                  setCreditDecisionConfirmed(false);
+                  setEstimate(null);
                 }}
                 disabled={busy}
               />
@@ -457,12 +587,30 @@ export default function OfferChangeForm({
                 value={confirmedCredit}
                 onChange={(event) => {
                   setConfirmedCredit(event.target.value);
+                  setCreditDecisionConfirmed(false);
+                  setEstimate(null);
                 }}
                 disabled={busy}
               />
             )}
           </Field>
         </div>
+      ) : null}
+      {current && needsCredit ? (
+        <label className="flex items-start gap-3 rounded-md border p-3 text-sm">
+          <input
+            type="checkbox"
+            checked={creditDecisionConfirmed}
+            onChange={(event) => {
+              setCreditDecisionConfirmed(event.target.checked);
+            }}
+            disabled={busy || !ready}
+            className="accent-primary mt-0.5 size-4"
+          />
+          <span>
+            I confirm the completed quantity and omission credit shown in this estimate, including any zero value.
+          </span>
+        </label>
       ) : null}
       <Field id="change-description" label="What is changing?">
         {(props) => (
@@ -472,6 +620,7 @@ export default function OfferChangeForm({
             value={description}
             onChange={(event) => {
               setDescription(event.target.value);
+              setEstimate(null);
             }}
             disabled={busy}
           />
@@ -653,27 +802,53 @@ export default function OfferChangeForm({
           {error}
         </p>
       ) : null}
-      {estimate ? (
+      {currentEstimate ? (
         <section className="bg-secondary space-y-2 rounded-lg p-4" aria-live="polite" aria-label="Estimate preview">
           <h3 className="font-semibold">{ready ? "Estimate ready for confirmation" : "Needs assessment"}</h3>
+          <p>Work item change: {estimateAmount(currentEstimate.itemEffectsDeltaMinor, true)}</p>
+          {current && needsCredit ? (
+            <div className="space-y-1 rounded-md border p-3 text-sm">
+              <p>
+                Completed quantity: {completedQuantity.trim() || "Needs assessment"} of {current.quantity}{" "}
+                {current.unit}
+              </p>
+              <p>Suggested omission credit: {estimateAmount(currentEstimate.omissionCreditSuggestionMinor)}</p>
+              <p>Confirmed omission credit: {estimateAmount(currentEstimate.confirmedOmissionCreditMinor)}</p>
+              <p>
+                Completed-work reconciliation added back after removing the original line:{" "}
+                {currentEstimate.omissionCreditSuggestionMinor !== null &&
+                currentEstimate.confirmedOmissionCreditMinor !== null
+                  ? estimateAmount(currentEstimate.creditReconciliationMinor)
+                  : "Needs assessment"}
+              </p>
+            </div>
+          ) : null}
+          <p>Consequential work: {estimateAmount(currentEstimate.consequenceDeltaMinor, true)}</p>
+          <p>Separate commercial adjustment: {estimateAmount(currentEstimate.commercialAdjustmentMinor, true)}</p>
+          {typeof currentEstimate.commercialAdjustmentReason === "string" &&
+          currentEstimate.commercialAdjustmentReason ? (
+            <p className="text-sm">Adjustment reason: {currentEstimate.commercialAdjustmentReason}</p>
+          ) : null}
           <p>
-            Price adjustment:{" "}
+            Total price adjustment:{" "}
             {formatSignedMinorAmount(
-              BigInt(typeof estimate.priceDeltaMinor === "string" ? estimate.priceDeltaMinor : "0"),
+              BigInt(typeof currentEstimate.priceDeltaMinor === "string" ? currentEstimate.priceDeltaMinor : "0"),
             )}
           </p>
           <p>
             Effort:{" "}
             {formatPersonHours(
-              BigInt(typeof estimate.effortDeltaMicroHours === "string" ? estimate.effortDeltaMicroHours : "0"),
+              BigInt(
+                typeof currentEstimate.effortDeltaMicroHours === "string" ? currentEstimate.effortDeltaMicroHours : "0",
+              ),
             )}
           </p>
-          {(estimate.reasons as string[] | undefined)?.map((reason) => (
+          {(currentEstimate.reasons as string[] | undefined)?.map((reason) => (
             <p key={reason} className="text-sm">
               {reason}
             </p>
           ))}
-          {(estimate.missingInputs as string[] | undefined)?.map((missing) => (
+          {(currentEstimate.missingInputs as string[] | undefined)?.map((missing) => (
             <p key={missing} className="text-destructive text-sm">
               Needs: {missing}
             </p>
@@ -704,7 +879,13 @@ export default function OfferChangeForm({
         </Button>
         <Button
           type="button"
-          disabled={busy || !ready || (hasPendingProposal && !supersessionConfirmed)}
+          disabled={
+            busy ||
+            !ready ||
+            (needsCredit && !creditDecisionConfirmed) ||
+            (hasPendingProposal && !supersessionConfirmed) ||
+            (itemAction === "update" && unitChanged && !replacementConfirmed)
+          }
           onClick={() => void send("record")}
         >
           Confirm and record change

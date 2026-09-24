@@ -109,6 +109,40 @@ void test("records a confirmed partial-work credit and reconciles retained compl
   assert.equal(completedWorkBeyondRemainingScope.priceDeltaMinor, "-600");
 });
 
+void test("prices complete removal and a new-identity replacement as separate effects", () => {
+  const original = item({ quantity: 2, labor_hours_per_unit: 0.5 });
+  const removal = {
+    itemId: original.id,
+    before: original,
+    after: null,
+    completedQuantity: "0",
+    confirmedOmissionCreditMinor: "20000",
+  };
+  const removed = estimateOfferChange({ scopeRevision: 3, effects: [removal] });
+  assert.equal(removed.status, "ready");
+  assert.equal(removed.priceDeltaMinor, "-20000");
+  assert.equal(removed.effortDeltaMicroHours, "-1000000");
+
+  const replacement = item({ id: "item-2", quantity: 3, unit: "piece", selling_rate_minor: 8000 });
+  const replaced = estimateOfferChange({
+    scopeRevision: 3,
+    effects: [removal, { itemId: replacement.id, before: null, after: replacement }],
+  });
+  assert.equal(replaced.status, "ready");
+  assert.equal(replaced.priceDeltaMinor, "4000");
+  assert.deepEqual(
+    (replaced.snapshot.item_effects as OfferChangeItemEffect[]).map(({ itemId, before, after }) => ({
+      itemId,
+      before: before?.id ?? null,
+      after: after?.id ?? null,
+    })),
+    [
+      { itemId: original.id, before: original.id, after: null },
+      { itemId: replacement.id, before: null, after: replacement.id },
+    ],
+  );
+});
+
 void test("keeps commercial overrides separate and requires their reason", () => {
   const before = item({ quantity: 1, labor_hours_per_unit: 0 });
   const after = item({ quantity: 2, labor_hours_per_unit: 0 });

@@ -46,11 +46,14 @@ Route protection is defined in `src/middleware.ts`. The dashboard intentionally 
 
 ## Verification
 
-The smoke test requires a reachable Supabase instance with email confirmation disabled, as configured for local development in `supabase/config.toml`.
+The smoke test requires a reachable local Supabase instance with email confirmation disabled, as configured in `supabase/config.toml`. It also needs the local API URL and anon key to accept its test offer through the customer decision RPC.
 
 ```bash
 npm run build
 npm run preview -- --port 4321
+set -a
+source <(npx supabase status -o env | grep -E '^(API_URL|ANON_KEY)=')
+set +a
 BASE_URL=http://localhost:4321 npm run smoke
 ```
 

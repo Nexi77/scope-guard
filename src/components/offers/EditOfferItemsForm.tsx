@@ -52,6 +52,9 @@ function EditOfferItemsForm({ offerId, revision, initialItems }: EditOfferItemsF
 
   return (
     <form className="space-y-5" onSubmit={handleSubmit} noValidate>
+      <p className="text-muted-foreground text-sm">
+        Saving these items replaces the pending offer and retains its previous revision in history.
+      </p>
       <OfferItemsEditor
         items={items}
         onChange={(nextItems) => {
@@ -71,7 +74,7 @@ function EditOfferItemsForm({ offerId, revision, initialItems }: EditOfferItemsF
         </p>
       ) : null}
       <Button type="submit" disabled={saving}>
-        {saving ? "Saving items…" : "Save item changes"}
+        {saving ? "Saving revision…" : "Replace pending offer with these items"}
       </Button>
     </form>
   );

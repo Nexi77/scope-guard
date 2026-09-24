@@ -2,8 +2,17 @@
 // Zero dependencies on purpose. Run against a live server: BASE_URL=http://localhost:4321 node scripts/smoke.mjs
 
 import { URL } from "node:url";
+import { createClient } from "@supabase/supabase-js";
 
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:4321";
+const supabaseUrl = process.env.API_URL ?? process.env.SUPABASE_URL;
+const supabaseAnonKey = process.env.ANON_KEY ?? process.env.SUPABASE_KEY;
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error("Smoke test requires the local Supabase API_URL and ANON_KEY.");
+}
+const sharedClient = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: { autoRefreshToken: false, persistSession: false },
+});
 const email = `smoke-${Date.now()}@example.com`;
 const foreignEmail = `smoke-foreign-${Date.now()}@example.com`;
 const password = "Smoke-Test-Passw0rd!";
@@ -178,6 +187,7 @@ const foreignScope = "Foreign contractor private scope";
 let createdCustomerId = null;
 let reusedCustomerId = null;
 let reusedOfferId = null;
+let publishableChange = null;
 let foreignCustomerId = null;
 let offerId = null;
 let foreignOfferId = null;
@@ -600,6 +610,21 @@ const steps = [
     { status: 200, body: '"revision":2' },
   ],
   [
+    "offer version history retains both the superseded and current snapshots",
+    () => request(`/offers/${reusedOfferId}`),
+    {
+      status: 200,
+      body: ["Offer version history", "Smoke-tested reused customer scope", "Revised smoke-tested scope"],
+      check: (actual) =>
+        /data-offer-revision="1"[^>]*data-revision-status="superseded"[^>]*data-revision-amount-minor="250"/.test(
+          actual.body,
+        ) &&
+        /data-offer-revision="2"[^>]*data-revision-status="pending"[^>]*data-revision-amount-minor="300"/.test(
+          actual.body,
+        ),
+    },
+  ],
+  [
     "malformed offer revision is rejected",
     () =>
       request(`/api/offers/${reusedOfferId}/revision`, {
@@ -655,6 +680,33 @@ const steps = [
       return { ...oversized, body: `${malformed.body} ${oversized.body} oversized:${oversized.status}` };
     },
     { status: 413, body: ["invalid JSON", "oversized:413"] },
+  ],
+  [
+    "out-of-range commercial adjustments return field errors for preview and publication",
+    async () => {
+      const invalidChange = {
+        expected_scope_revision: 1,
+        description: "Invalid commercial adjustment",
+        target_deadline: today(),
+        effects: [],
+        commercial_adjustment_minor: "10000000000000000",
+      };
+      const preview = await request(`/api/offers/${reusedOfferId}/changes/preview`, {
+        method: "POST",
+        form: { change_json: JSON.stringify(invalidChange) },
+      });
+      const publication = await request(`/api/offers/${reusedOfferId}/changes/`, {
+        method: "POST",
+        form: { change_json: JSON.stringify({ ...invalidChange, commercial_adjustment_minor: "-10000000000000000" }) },
+      });
+      return { ...preview, body: `${preview.body} ${publication.body}`, publicationStatus: publication.status };
+    },
+    {
+      status: 400,
+      body: ["outside the supported amount range", '"commercial_adjustment_minor"'],
+      check: (actual) =>
+        actual.publicationStatus === 400 && (actual.body.match(/"commercial_adjustment_minor"/g) ?? []).length === 2,
+    },
   ],
   [
     "change preview rejects stale scope revisions",
@@ -734,6 +786,129 @@ const steps = [
         },
       }),
     { status: 404, body: "Offer is unavailable" },
+  ],
+  [
+    "customer accepts the current base revision with the offer PIN",
+    async () => {
+      const contractor = createClient(supabaseUrl, supabaseAnonKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      const { error: signInError } = await contractor.auth.signInWithPassword({ email, password });
+      if (signInError) return { status: 0, body: "Could not authenticate the smoke contractor with local Supabase." };
+      const { data: offer, error: offerError } = await contractor
+        .from("offers")
+        .select("share_token")
+        .eq("id", reusedOfferId)
+        .single();
+      if (offerError || !offer?.share_token)
+        return { status: 0, body: "Could not read the smoke contractor's offer token." };
+      const pinResponse = await request(`/api/offers/${reusedOfferId}/pin`, { method: "POST" });
+      let pin;
+      try {
+        pin = JSON.parse(pinResponse.body).pin;
+      } catch {
+        return { status: 0, body: "Could not generate the smoke offer PIN." };
+      }
+      if (pinResponse.status !== 200 || !/^\d{6}$/.test(pin))
+        return { status: 0, body: "Could not generate a valid smoke offer PIN." };
+      const { data: shared, error: sharedError } = await sharedClient.rpc("get_shared_offer", {
+        p_share_token: offer.share_token,
+      });
+      if (sharedError || !shared?.base_revision?.id)
+        return { status: 0, body: "Could not read the current shared offer revision." };
+      const { data: decision, error: decisionError } = await sharedClient.rpc("decide_shared_offer_revision", {
+        p_share_token: offer.share_token,
+        p_pin: pin,
+        p_offer_revision_id: shared.base_revision.id,
+        p_outcome: "accepted",
+      });
+      if (decisionError || decision?.status !== "accepted")
+        return { status: 0, body: "Could not accept the current smoke offer revision." };
+      const { data: items, error: itemsError } = await contractor
+        .from("offer_items")
+        .select("id, name, quantity, unit, specification, selling_rate_minor, labor_hours_per_unit")
+        .eq("offer_id", reusedOfferId)
+        .order("position", { ascending: true });
+      if (itemsError || items?.length !== 1)
+        return { status: 0, body: "Could not read the accepted smoke offer item." };
+      const item = items[0];
+      const before = {
+        id: item.id,
+        name: item.name,
+        quantity: Number(item.quantity),
+        unit: item.unit,
+        specification: item.specification,
+        selling_rate_minor: Number(item.selling_rate_minor),
+        labor_hours_per_unit: Number(item.labor_hours_per_unit),
+      };
+      publishableChange = {
+        expected_scope_revision: 1,
+        expected_pending_change_id: null,
+        supersession_confirmed: false,
+        description: "Add one smoke-tested work item unit",
+        target_deadline: today(),
+        effects: [{ itemId: item.id, before, after: { ...before, quantity: 2 } }],
+        commercial_adjustment_minor: "0",
+      };
+      return { status: 200, location: "", body: "Accepted current base revision and prepared its item effect." };
+    },
+    { status: 200, body: "Accepted current base revision" },
+  ],
+  [
+    "change publication rejects malformed effect details",
+    () =>
+      request(`/api/offers/${reusedOfferId}/changes/`, {
+        method: "POST",
+        form: { change_json: JSON.stringify({ ...publishableChange, effects: [{ itemId: "invalid" }] }) },
+      }),
+    { status: 400, body: "affected item" },
+  ],
+  [
+    "change publication rejects stale scope revisions",
+    () =>
+      request(`/api/offers/${reusedOfferId}/changes/`, {
+        method: "POST",
+        form: { change_json: JSON.stringify({ ...publishableChange, expected_scope_revision: 999 }) },
+      }),
+    { status: 409, body: "scope changed" },
+  ],
+  [
+    "anonymous contractor cannot publish a change",
+    () =>
+      request(
+        `/api/offers/${reusedOfferId}/changes/`,
+        { method: "POST", form: { change_json: JSON.stringify(publishableChange) } },
+        new Map(),
+      ),
+    { status: 401, body: "Sign in" },
+  ],
+  [
+    "foreign contractor's offer is unavailable for publication",
+    () =>
+      request(`/api/offers/${foreignOfferId}/changes/`, {
+        method: "POST",
+        form: { change_json: JSON.stringify(publishableChange) },
+      }),
+    { status: 404, body: "Offer is unavailable" },
+  ],
+  [
+    "accepted offer publishes an estimated change through HTTP",
+    () =>
+      request(`/api/offers/${reusedOfferId}/changes/`, {
+        method: "POST",
+        form: { change_json: JSON.stringify(publishableChange) },
+      }),
+    {
+      status: 201,
+      body: ['"success":true', '"priceDeltaMinor":"300"'],
+      check: (actual) => {
+        try {
+          return /^[0-9a-f-]{36}$/i.test(JSON.parse(actual.body).changeId);
+        } catch {
+          return false;
+        }
+      },
+    },
   ],
   [
     "invalid customer query shows a safe unavailable state",

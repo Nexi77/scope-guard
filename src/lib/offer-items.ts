@@ -87,7 +87,8 @@ function parseItem(
   const quantity = parseThousandths(draft.quantity, true);
   if (quantity === null) return fail("quantity", "Enter a positive quantity with up to three decimal places.");
 
-  if (!OFFER_ITEM_UNITS.some(({ value }) => value === draft.unit)) {
+  const unit = OFFER_ITEM_UNITS.find(({ value }) => value === draft.unit)?.value;
+  if (!unit) {
     return fail("unit", "Choose a supported unit.");
   }
 
@@ -113,7 +114,7 @@ function parseItem(
       ...(allowIds && draft.id ? { id: draft.id } : {}),
       name,
       quantity,
-      unit: draft.unit,
+      unit,
       specification,
       selling_rate_minor: Number(sellingRateMinor),
       labor_hours_per_unit: laborHours,

@@ -37,10 +37,16 @@ export async function readBoundedFormData(request: Request, maxBytes = MAX_OFFER
     reader.releaseLock();
   }
 
+  const body = new Uint8Array(new ArrayBuffer(totalBytes));
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
   const replayRequest = new Request(request.url, {
     method: request.method,
     headers: request.headers,
-    body: new Blob(chunks),
+    body: new Blob([body]),
   });
   return replayRequest.formData();
 }

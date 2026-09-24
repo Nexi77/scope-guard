@@ -4,7 +4,7 @@ import { json, prepareChange } from "@/lib/offer-change-api";
 
 export const POST: APIRoute = async (context) => {
   const prepared = await prepareChange(context);
-  if ("response" in prepared) return prepared.response;
+  if (prepared.response) return prepared.response;
   const offerStatus: unknown = prepared.offer.status;
   if (typeof offerStatus !== "string" || !["accepted", "agreed"].includes(offerStatus))
     return json(409, { error: "Accept the current offer before proposing a change." });

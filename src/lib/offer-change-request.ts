@@ -4,12 +4,21 @@ import type {
   OfferChangeItemEffect,
   OfferChangeOperation,
 } from "@/lib/offer-change-estimator";
+import { MAX_AMOUNT_MINOR } from "@/lib/offer-change-estimator";
 
 export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export const MAX_CHANGE_JSON_BYTES = 256 * 1024;
 
 type ParseResult =
-  { value: OfferChangeEstimateInput & { description: string; targetDeadline: string } } | { error: string };
+  | {
+      value: OfferChangeEstimateInput & {
+        description: string;
+        targetDeadline: string;
+        expectedPendingChangeId: string | null;
+        supersessionConfirmed: boolean;
+      };
+    }
+  | { error: string; field?: string };
 
 function parseItem(value: unknown): OfferItemPayload | null | undefined {
   if (value === null) return null;
@@ -31,6 +40,8 @@ export function parseOfferChangeRequest(text: string): ParseResult {
   const body = raw as Record<string, unknown>;
   const allowed = new Set([
     "expected_scope_revision",
+    "expected_pending_change_id",
+    "supersession_confirmed",
     "description",
     "target_deadline",
     "effects",
@@ -52,6 +63,14 @@ export function parseOfferChangeRequest(text: string): ParseResult {
     Number(body.expected_scope_revision) < 1
   )
     return { error: "The offer revision is invalid." };
+  if (
+    body.expected_pending_change_id !== undefined &&
+    body.expected_pending_change_id !== null &&
+    (typeof body.expected_pending_change_id !== "string" || !UUID_PATTERN.test(body.expected_pending_change_id))
+  )
+    return { error: "The pending proposal identity is invalid." };
+  if (body.supersession_confirmed !== undefined && typeof body.supersession_confirmed !== "boolean")
+    return { error: "The proposal replacement confirmation is invalid." };
   if (targetDeadline) {
     const parsedDate = new Date(`${targetDeadline}T00:00:00Z`);
     if (
@@ -136,14 +155,32 @@ export function parseOfferChangeRequest(text: string): ParseResult {
     return { error: "Consequence operations contain unsupported fields." };
   const consequences = rawConsequences as OfferChangeOperation[];
   const adjustment = body.commercial_adjustment_minor;
-  if (adjustment !== undefined && typeof adjustment !== "string" && typeof adjustment !== "number")
-    return { error: "Commercial adjustment must be a signed minor-unit amount." };
+  if (
+    adjustment !== undefined &&
+    typeof adjustment !== "string" &&
+    (typeof adjustment !== "number" || !Number.isSafeInteger(adjustment))
+  )
+    return {
+      error: "Commercial adjustment must be a signed minor-unit amount.",
+      field: "commercial_adjustment_minor",
+    };
   const commercialAdjustmentMinor = adjustment === undefined ? "0" : String(adjustment);
+  if (
+    !/^-?(?:0|[1-9]\d*)$/.test(commercialAdjustmentMinor) ||
+    BigInt(commercialAdjustmentMinor) < -MAX_AMOUNT_MINOR ||
+    BigInt(commercialAdjustmentMinor) > MAX_AMOUNT_MINOR
+  )
+    return {
+      error: "Commercial adjustment is outside the supported amount range.",
+      field: "commercial_adjustment_minor",
+    };
   const commercialAdjustmentReason =
     typeof body.commercial_adjustment_reason === "string" ? body.commercial_adjustment_reason : null;
   return {
     value: {
       scopeRevision: Number(body.expected_scope_revision ?? 1),
+      expectedPendingChangeId: body.expected_pending_change_id ?? null,
+      supersessionConfirmed: body.supersession_confirmed === true,
       effects,
       consequences,
       commercialAdjustmentMinor,

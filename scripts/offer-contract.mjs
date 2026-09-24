@@ -364,6 +364,20 @@ async function run() {
       originalRevisionRows[0].items.length === 1,
     "new offers must retain their initial itemized base revision",
   );
+  const { data: firstSharedRevision, error: firstSharedRevisionError } = await anonymous.rpc("get_shared_offer", {
+    p_share_token: revisionOffer.share_token,
+  });
+  expectNoError(firstSharedRevisionError, "read initial shared base revision identity");
+  expect(
+    firstSharedRevision.base_revision.id === originalRevisionRows[0].id &&
+      firstSharedRevision.base_revision.revision === 1 &&
+      firstSharedRevision.base_revision.status === "pending",
+    "shared read must identify the exact pending base revision",
+  );
+  await expectError(
+    anonymous.rpc("current_base_revision_projection", { p_offer_id: revisionOffer.id }),
+    "anonymous direct revision projection access",
+  );
   const { data: revisionItems, error: revisionItemsError } = await contractorA.client
     .from("offer_items")
     .select("id, name, quantity, unit, specification, selling_rate_minor, labor_hours_per_unit")
@@ -428,11 +442,21 @@ async function run() {
       revisionHistory[2].items[0].quantity === 3,
     "each base replacement must preserve the prior immutable snapshot and supersession link",
   );
+  const { data: latestSharedRevision, error: latestSharedRevisionError } = await anonymous.rpc("get_shared_offer", {
+    p_share_token: revisionOffer.share_token,
+  });
+  expectNoError(latestSharedRevisionError, "read replacement shared base revision identity");
+  expect(
+    latestSharedRevision.base_revision.id === revisionHistory[2].id &&
+      latestSharedRevision.base_revision.revision === 3 &&
+      latestSharedRevision.base_revision.status === "pending",
+    "shared read must move to the latest pending base revision",
+  );
   const staleBaseDecision = await expectError(
     anonymous.rpc("decide_shared_offer_revision", {
       p_share_token: revisionOffer.share_token,
       p_pin: "246810",
-      p_offer_revision_id: revisionHistory[0].id,
+      p_offer_revision_id: firstSharedRevision.base_revision.id,
       p_outcome: "accepted",
     }),
     "decide a superseded base revision",
@@ -441,11 +465,20 @@ async function run() {
   const { data: acceptedRevision, error: acceptedRevisionError } = await anonymous.rpc("decide_shared_offer_revision", {
     p_share_token: revisionOffer.share_token,
     p_pin: "246810",
-    p_offer_revision_id: revisionHistory[2].id,
+    p_offer_revision_id: latestSharedRevision.base_revision.id,
     p_outcome: "accepted",
   });
   expectNoError(acceptedRevisionError, "accept the current base revision by PIN");
   expect(acceptedRevision.outcome === "accepted", "PIN decision must bind to the current revision");
+  const { data: acceptedSharedRevision, error: acceptedSharedRevisionError } = await anonymous.rpc("get_shared_offer", {
+    p_share_token: revisionOffer.share_token,
+  });
+  expectNoError(acceptedSharedRevisionError, "read accepted shared base revision status");
+  expect(
+    acceptedSharedRevision.base_revision.id === latestSharedRevision.base_revision.id &&
+      acceptedSharedRevision.base_revision.status === "accepted",
+    "shared read must reflect the decided base revision status",
+  );
   const { data: repeatedRevisionDecision, error: repeatedRevisionDecisionError } = await anonymous.rpc(
     "decide_shared_offer_revision",
     {
@@ -461,8 +494,15 @@ async function run() {
       repeatedRevisionDecision.outcome === "accepted",
     "repeated base revision decision must return the original decision",
   );
-  const publishChange = async (revision, description, priceDelta, deadlineDelta = null) => {
-    const { data, error } = await contractorA.client.rpc("publish_offer_change", {
+  const publishChange = async (
+    revision,
+    description,
+    priceDelta,
+    deadlineDelta = null,
+    expectedPendingId = null,
+    supersessionConfirmed = false,
+  ) => {
+    const { data, error } = await contractorA.client.rpc("publish_offer_change_checked", {
       p_offer_id: revisionOffer.id,
       p_expected_scope_revision: revision,
       p_description: description,
@@ -471,12 +511,59 @@ async function run() {
       p_estimate_snapshot: { scope_revision: revision, commercial_adjustment_minor: priceDelta },
       p_item_effects: [],
       p_confirmed_impact: true,
+      p_expected_pending_change_id: expectedPendingId,
+      p_supersession_confirmed: supersessionConfirmed,
     });
     expectNoError(error, description);
     return data;
   };
   const oldProposalId = await publishChange(1, "First proposal", 1_000);
-  const currentProposalId = await publishChange(1, "Corrected proposal", 1_500, 2);
+  const unseenPendingError = await expectError(
+    contractorA.client.rpc("publish_offer_change_checked", {
+      p_offer_id: revisionOffer.id,
+      p_expected_scope_revision: 1,
+      p_description: "Unseen second-tab proposal",
+      p_price_delta_minor: 1_500,
+      p_deadline_delta_days: null,
+      p_estimate_snapshot: { scope_revision: 1, commercial_adjustment_minor: 1_500 },
+      p_item_effects: [],
+      p_confirmed_impact: true,
+      p_expected_pending_change_id: null,
+      p_supersession_confirmed: false,
+    }),
+    "publish from a tab that did not see the pending proposal",
+  );
+  expect(unseenPendingError.code === "PT409", "unseen pending proposal must cause a publication conflict");
+  const unconfirmedSupersessionError = await expectError(
+    contractorA.client.rpc("publish_offer_change_checked", {
+      p_offer_id: revisionOffer.id,
+      p_expected_scope_revision: 1,
+      p_description: "Unconfirmed correction",
+      p_price_delta_minor: 1_500,
+      p_deadline_delta_days: null,
+      p_estimate_snapshot: { scope_revision: 1, commercial_adjustment_minor: 1_500 },
+      p_item_effects: [],
+      p_confirmed_impact: true,
+      p_expected_pending_change_id: oldProposalId,
+      p_supersession_confirmed: false,
+    }),
+    "replace a pending proposal without explicit confirmation",
+  );
+  expect(unconfirmedSupersessionError.code === "P0001", "supersession requires explicit confirmation");
+  await expectError(
+    contractorA.client.rpc("publish_offer_change", {
+      p_offer_id: revisionOffer.id,
+      p_expected_scope_revision: 1,
+      p_description: "Bypass pending confirmation",
+      p_price_delta_minor: 1_500,
+      p_deadline_delta_days: null,
+      p_estimate_snapshot: { scope_revision: 1, commercial_adjustment_minor: 1_500 },
+      p_item_effects: [],
+      p_confirmed_impact: true,
+    }),
+    "call the revoked publication command directly",
+  );
+  const currentProposalId = await publishChange(1, "Corrected proposal", 1_500, 2, oldProposalId, true);
   const { data: proposalRows, error: proposalRowsError } = await contractorA.client
     .from("offer_changes")
     .select("id, status, proposal_revision, superseded_by, estimate_snapshot, item_effects")
@@ -543,16 +630,21 @@ async function run() {
     scopeAfterRetry.active_scope_revision === scopeBeforeRetry.active_scope_revision,
     "repeated PIN decisions must not activate the same effect twice",
   );
-  const { data: agreedChangeId, error: agreedChangeError } = await contractorA.client.rpc("publish_offer_change", {
-    p_offer_id: revisionOffer.id,
-    p_expected_scope_revision: 2,
-    p_description: "Confirmed no-impact correction",
-    p_price_delta_minor: 0,
-    p_deadline_delta_days: 0,
-    p_estimate_snapshot: { scope_revision: 2 },
-    p_item_effects: [],
-    p_confirmed_impact: true,
-  });
+  const { data: agreedChangeId, error: agreedChangeError } = await contractorA.client.rpc(
+    "publish_offer_change_checked",
+    {
+      p_offer_id: revisionOffer.id,
+      p_expected_scope_revision: 2,
+      p_description: "Confirmed no-impact correction",
+      p_price_delta_minor: 0,
+      p_deadline_delta_days: 0,
+      p_estimate_snapshot: { scope_revision: 2 },
+      p_item_effects: [],
+      p_confirmed_impact: true,
+      p_expected_pending_change_id: null,
+      p_supersession_confirmed: false,
+    },
+  );
   expectNoError(agreedChangeError, "publish a confirmed zero-impact correction");
   const { data: agreedChange, error: agreedChangeReadError } = await contractorA.client
     .from("offer_changes")
@@ -573,7 +665,7 @@ async function run() {
   );
   expectNoError(activeItemsBeforeEffectError, "read effective item projection before accepted effect");
   const baselineItem = activeItemsBeforeEffect[0];
-  const { data: itemChangeId, error: itemChangeError } = await contractorA.client.rpc("publish_offer_change", {
+  const { data: itemChangeId, error: itemChangeError } = await contractorA.client.rpc("publish_offer_change_checked", {
     p_offer_id: revisionOffer.id,
     p_expected_scope_revision: 3,
     p_description: "Increase agreed item quantity",
@@ -596,6 +688,8 @@ async function run() {
       },
     ],
     p_confirmed_impact: true,
+    p_expected_pending_change_id: null,
+    p_supersession_confirmed: false,
   });
   expectNoError(itemChangeError, "publish an item quantity effect");
   const { error: itemDecisionError } = await anonymous.rpc("decide_shared_offer_change", {
@@ -619,7 +713,7 @@ async function run() {
   );
   const addedItemId = randomUUID();
   const { data: replaceItemChangeId, error: replaceItemChangeError } = await contractorA.client.rpc(
-    "publish_offer_change",
+    "publish_offer_change_checked",
     {
       p_offer_id: revisionOffer.id,
       p_expected_scope_revision: 4,
@@ -644,6 +738,8 @@ async function run() {
         },
       ],
       p_confirmed_impact: true,
+      p_expected_pending_change_id: null,
+      p_supersession_confirmed: false,
     },
   );
   expectNoError(replaceItemChangeError, "publish replacement item effects");
@@ -681,8 +777,8 @@ async function run() {
     replacementRead.active_deadline === expectedActiveDeadline.toISOString().slice(0, 10),
     "active deadline must include only the accepted calendar-day adjustment",
   );
-  const proposeReplacement = async (description, quantity, priceDelta) => {
-    const { data, error } = await contractorA.client.rpc("publish_offer_change", {
+  const proposeReplacement = async (description, quantity, priceDelta, expectedPendingId = null) => {
+    const { data, error } = await contractorA.client.rpc("publish_offer_change_checked", {
       p_offer_id: revisionOffer.id,
       p_expected_scope_revision: 5,
       p_description: description,
@@ -703,6 +799,8 @@ async function run() {
         },
       ],
       p_confirmed_impact: true,
+      p_expected_pending_change_id: expectedPendingId,
+      p_supersession_confirmed: expectedPendingId !== null,
     });
     expectNoError(error, description);
     return data;
@@ -712,7 +810,7 @@ async function run() {
     ...initialStatuses,
     "pending",
   ]);
-  const supersedingReadId = await proposeReplacement("Superseding quantity five", 5, 20_000);
+  const supersedingReadId = await proposeReplacement("Superseding quantity five", 5, 20_000, pendingReadId);
   const staleOpenViewDecision = await expectError(
     anonymous.rpc("decide_shared_offer_change", {
       p_share_token: revisionOffer.share_token,
@@ -763,7 +861,7 @@ async function run() {
     selling_rate_minor: 10_000,
     labor_hours_per_unit: 1,
   };
-  const { data: agreedReadId, error: agreedReadError } = await contractorA.client.rpc("publish_offer_change", {
+  const { data: agreedReadId, error: agreedReadError } = await contractorA.client.rpc("publish_offer_change_checked", {
     p_offer_id: revisionOffer.id,
     p_expected_scope_revision: 5,
     p_description: "Clarify the replacement specification",
@@ -772,6 +870,8 @@ async function run() {
     p_estimate_snapshot: { scope_revision: 5, commercial_adjustment_minor: 0 },
     p_item_effects: [{ item_id: addedItemId, before: effectItem(effectiveReplacementItems[0]), after: agreedAfter }],
     p_confirmed_impact: true,
+    p_expected_pending_change_id: null,
+    p_supersession_confirmed: false,
   });
   expectNoError(agreedReadError, "publish agreed item correction");
   expect(agreedReadId, "agreed correction must have a stable ID");
@@ -869,6 +969,25 @@ async function run() {
   expect(
     editedOffer.base_amount_minor === 20_252 && editedOffer.items_revision === 2,
     "edit must derive the new total from rounded lines and advance its revision",
+  );
+  const { data: itemEditRevisions, error: itemEditRevisionsError } = await contractorA.client
+    .from("offer_revisions")
+    .select("id, revision, status, superseded_by, base_amount_minor, items")
+    .eq("offer_id", newOffer.offer_id)
+    .order("revision");
+  expectNoError(itemEditRevisionsError, "read revisions after pending item edit");
+  expect(
+    itemEditRevisions.length === 2 &&
+      itemEditRevisions[0].revision === 1 &&
+      itemEditRevisions[0].status === "superseded" &&
+      itemEditRevisions[0].superseded_by === itemEditRevisions[1].id &&
+      itemEditRevisions[0].base_amount_minor === 12_347 &&
+      itemEditRevisions[0].items[0].quantity === 1.25 &&
+      itemEditRevisions[1].revision === 2 &&
+      itemEditRevisions[1].status === "pending" &&
+      itemEditRevisions[1].base_amount_minor === 20_252 &&
+      itemEditRevisions[1].items[0].quantity === 2,
+    "pending item edits must retain the original snapshot and create a superseding revision",
   );
   const { data: retainedItem, error: retainedItemError } = await contractorA.client
     .from("offer_items")
@@ -1506,7 +1625,7 @@ async function run() {
         return "edit";
       },
       async () => {
-        const { error } = await contractorA.client.rpc("publish_offer_change", {
+        const { error } = await contractorA.client.rpc("publish_offer_change_checked", {
           p_offer_id: revisionOffer.id,
           p_expected_scope_revision: lockPublishState.active_scope_revision,
           p_description: "Publication waiting on offer lock",
@@ -1518,6 +1637,8 @@ async function run() {
           },
           p_item_effects: [],
           p_confirmed_impact: true,
+          p_expected_pending_change_id: protectedPendingChange,
+          p_supersession_confirmed: true,
         });
         expectNoError(error, "publish proposal after offer lock release");
         return "publication";

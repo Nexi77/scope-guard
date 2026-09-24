@@ -32,6 +32,19 @@ interface OfferItemRecord {
   line_amount_minor: string | number;
 }
 
+interface OfferRevisionRecord {
+  id: string;
+  revision: number;
+  base_scope: string;
+  base_amount_minor: string | number;
+  base_deadline: string;
+  items: OfferItemRecord[];
+  status: "pending" | "accepted" | "rejected" | "superseded";
+  created_at: string;
+  decided_at: string | null;
+  rejection_comment: string | null;
+}
+
 interface CurrentOfferRecord {
   active_amount_minor: string | number;
   active_deadline: string;
@@ -54,9 +67,10 @@ const showReplacementToast = Astro.url.searchParams.get("notice") === "revision-
 const supabase = createClient(Astro.request.headers, Astro.cookies);
 let offer: OfferRecord | null = null;
 let items: OfferItemRecord[] = [];
+let offerRevisions: OfferRevisionRecord[] = [];
 let hasChanges = false;
 let activeItems: OfferItemRecord[] = [];
-let pendingChange = false;
+let pendingChangeId: string | null = null;
 let activeAmount = 0n;
 let activeDeadline = "";
 let currentOffer: CurrentOfferRecord | null = null;
@@ -75,13 +89,21 @@ if (supabase && user && UUID_PATTERN.test(offerId)) {
   loadError = Boolean(error);
   offer = data;
   if (offer) {
-    const [itemsResult, currentResult, effectiveItemsResult, templatesResult] = await Promise.all([
+    const [itemsResult, revisionsResult, currentResult, effectiveItemsResult, templatesResult] = await Promise.all([
       supabase
         .from("offer_items")
         .select("id, name, quantity, unit, specification, selling_rate_minor, labor_hours_per_unit, line_amount_minor")
         .eq("offer_id", offer.id)
         .eq("contractor_id", user.id)
         .order("position", { ascending: true }),
+      supabase
+        .from("offer_revisions")
+        .select(
+          "id, revision, base_scope, base_amount_minor, base_deadline, items, status, created_at, decided_at, rejection_comment",
+        )
+        .eq("offer_id", offer.id)
+        .eq("contractor_id", user.id)
+        .order("revision", { ascending: false }),
       supabase.rpc("get_contractor_offer_current", { p_offer_id: offer.id }),
       supabase.rpc("get_effective_offer_items", { p_offer_id: offer.id }),
       supabase
@@ -94,10 +116,12 @@ if (supabase && user && UUID_PATTERN.test(offerId)) {
     ]);
     loadError =
       itemsResult.error !== null ||
+      revisionsResult.error !== null ||
       currentResult.error !== null ||
       effectiveItemsResult.error !== null ||
       templatesResult.error !== null;
     items = itemsResult.data ?? [];
+    offerRevisions = revisionsResult.data ?? [];
     currentOffer = currentResult.data as CurrentOfferRecord | null;
     activeItems = (effectiveItemsResult.data ?? []) as OfferItemRecord[];
     const rawTemplates: unknown = templatesResult.data;
@@ -130,7 +154,7 @@ if (supabase && user && UUID_PATTERN.test(offerId)) {
     changeTemplates = [...STARTER_OFFER_CHANGE_TEMPLATES, ...savedTemplates];
     const changeRows = currentOffer?.changes ?? [];
     hasChanges = changeRows.length > 0;
-    pendingChange = changeRows.some((change) => change.status === "pending");
+    pendingChangeId = changeRows.find((change) => change.status === "pending")?.id ?? null;
     if (currentOffer) {
       activeAmount = BigInt(currentOffer.active_amount_minor);
       activeDeadline = currentOffer.active_deadline;
@@ -191,7 +215,7 @@ const lockReason = hasChanges
 
           <section class="bg-card space-y-5 rounded-xl border p-5 sm:p-6" aria-labelledby="offer-summary-title">
             <h2 id="offer-summary-title" class="text-lg font-semibold">
-              Original offer
+              Current base offer
             </h2>
             <dl class="grid gap-4 sm:grid-cols-2">
               <div>
@@ -260,6 +284,71 @@ const lockReason = hasChanges
               </div>
             </div>
           </section>
+          <section class="bg-card mt-6 space-y-4 rounded-xl border p-5 sm:p-6" aria-labelledby="offer-revisions-title">
+            <div>
+              <h2 id="offer-revisions-title" class="text-lg font-semibold">
+                Offer version history
+              </h2>
+              <p class="text-muted-foreground mt-1 text-sm">
+                Each version keeps the scope and price presented to the customer at that time.
+              </p>
+            </div>
+            <ol class="space-y-3">
+              {offerRevisions.map((revision) => (
+                <li>
+                  <details
+                    class="rounded-md border p-4"
+                    open={revision.revision === offer.base_revision}
+                    data-offer-revision={revision.revision}
+                    data-revision-status={revision.status}
+                    data-revision-amount-minor={revision.base_amount_minor}
+                  >
+                    <summary class="cursor-pointer text-sm font-semibold">
+                      Version {revision.revision} · {revision.status} ·{" "}
+                      {formatMinorAmount(BigInt(revision.base_amount_minor))} · {formatDate(revision.base_deadline)}
+                    </summary>
+                    <div class="mt-4 space-y-4 border-t pt-4 text-sm">
+                      <p class="text-muted-foreground">
+                        Saved {formatDate(revision.created_at.slice(0, 10))}
+                        {revision.decided_at
+                          ? ` · Customer decision ${formatDate(revision.decided_at.slice(0, 10))}`
+                          : ""}
+                      </p>
+                      {revision.rejection_comment ? (
+                        <p class="text-muted-foreground">Rejection reason: {revision.rejection_comment}</p>
+                      ) : null}
+                      <div>
+                        <h3 class="font-medium">Scope description</h3>
+                        <p class="text-muted-foreground mt-1 whitespace-pre-wrap">{revision.base_scope}</p>
+                      </div>
+                      <div>
+                        <h3 class="font-medium">Priced work items</h3>
+                        <ul class="mt-2 divide-y border-t">
+                          {revision.items.map((item) => (
+                            <li class="flex flex-wrap justify-between gap-2 py-2" data-revision-item-id={item.id}>
+                              <span>
+                                {item.name} · {item.quantity} {item.unit}
+                                {item.specification ? ` · ${item.specification}` : ""}
+                                <span class="text-muted-foreground mt-1 block">
+                                  Rate {formatMinorAmount(BigInt(item.selling_rate_minor))}/{item.unit} · Private effort{" "}
+                                  {item.labor_hours_per_unit} h/{item.unit}
+                                </span>
+                              </span>
+                              <span>{formatMinorAmount(BigInt(item.line_amount_minor))}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <p class="font-semibold">
+                        Version total: {formatMinorAmount(BigInt(revision.base_amount_minor))}
+                      </p>
+                      <p>Version deadline: {formatDate(revision.base_deadline)}</p>
+                    </div>
+                  </details>
+                </li>
+              ))}
+            </ol>
+          </section>
           {!["pending", "rejected"].includes(offer.status) ? (
             <section class="bg-card mt-6 space-y-4 rounded-xl border p-5 sm:p-6" aria-labelledby="current-scope-title">
               <h2 id="current-scope-title" class="text-lg font-semibold">
@@ -313,7 +402,7 @@ const lockReason = hasChanges
 
           <section class="bg-card mt-6 rounded-xl border p-5 sm:p-6" aria-labelledby="item-corrections-title">
             <h2 id="item-corrections-title" class="mb-4 text-lg font-semibold">
-              Original item corrections
+              Revise pending offer items
             </h2>
             {canEdit ? (
               <EditOfferItemsForm
@@ -357,7 +446,7 @@ const lockReason = hasChanges
                 scopeRevision={offer.active_scope_revision}
                 items={activeItems}
                 activeDeadline={activeDeadline}
-                hasPendingProposal={pendingChange}
+                pendingProposalId={pendingChangeId}
                 templates={changeTemplates}
               />
             </section>

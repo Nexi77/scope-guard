@@ -38,7 +38,7 @@ export async function prepareChange(context: APIContext) {
     return {
       response: json(new TextEncoder().encode(text).byteLength > 256 * 1024 ? 413 : 400, {
         error: parsed.error,
-        fieldErrors: { change_json: parsed.error },
+        fieldErrors: { [parsed.field ?? "change_json"]: parsed.error },
       }),
     };
 
@@ -63,11 +63,12 @@ export async function prepareChange(context: APIContext) {
   const current = new Map((items as Record<string, unknown>[]).map((item) => [String(item.id), item]));
   for (const effect of parsed.value.effects) {
     const active = current.get(effect.itemId);
-    if (effect.before) {
+    const before = effect.before;
+    if (before) {
       if (
         !active ||
         ["name", "quantity", "unit", "specification", "selling_rate_minor", "labor_hours_per_unit"].some(
-          (key) => String(active[key]) !== String(effect.before[key as keyof typeof effect.before]),
+          (key) => String(active[key]) !== String(before[key as keyof typeof before]),
         )
       )
         return {
@@ -99,5 +100,15 @@ export async function prepareChange(context: APIContext) {
           86_400_000,
       )
     : null;
-  return { supabase, offer, offerId, currentRevision, request: parsed.value, estimate, activeDeadline, deadlineDelta };
+  return {
+    response: null,
+    supabase,
+    offer,
+    offerId,
+    currentRevision,
+    request: parsed.value,
+    estimate,
+    activeDeadline,
+    deadlineDelta,
+  };
 }
