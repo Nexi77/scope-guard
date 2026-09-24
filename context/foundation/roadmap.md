@@ -48,7 +48,7 @@ ScopeGuard gathers agreements about changes raised during a renovation or instal
 | S-02 | browse-client-offers | browse a customer's offers with status, price, and delivery deadline | S-01 | FR-002 | done |
 | S-03 | manage-offer-pin | set or reset a PIN for a customer or offer | S-01 | FR-008 | done |
 | S-08 | prepare-structured-offer | prepare and review an itemized offer that provides a reliable baseline for change estimates | S-01 | FR-001, FR-002; MS-01 | done |
-| S-04 | record-offer-change | estimate a change against agreed work and confirm its explained price and deadline impact | S-01, S-08 | FR-003; Business Logic; MS-02 | planning |
+| S-04 | record-offer-change | estimate a change against agreed work and confirm its explained price and deadline impact | S-01, S-08 | FR-003; Business Logic; MS-02 | in-progress |
 | S-05 | view-shared-offer | use a permanent link to see only the assigned offer and its current status | S-01, S-04 | FR-005, FR-006 | proposed |
 | S-06 | decide-change-by-pin | use a permanent link and PIN to approve or reject a pending change | S-03, S-04, S-05 | US-01, FR-007 | proposed |
 | S-07 | view-offer-history | see the current offer plus the history of changes and customer decisions | S-04, S-06 | FR-004, FR-005 | proposed |
@@ -154,7 +154,7 @@ Update from the assisted-estimation research on `2026-09-23`: offer creation, br
 - **Unknowns:**
   - Which initial trade templates and contractor-supplied rates are validated, and which site conditions require assessment rather than an automatic estimate? — Owner: team and contractor. Block: no; resolve during planning before implementation.
 - **Risk:** Estimates must use current agreed work and execution progress, distinguish cost from customer price and effort from deadline movement, and keep unresolved impact out of the no-impact correction path.
-- **Status:** planning
+- **Status:** in-progress
 
 ### S-05: View a shared offer
 

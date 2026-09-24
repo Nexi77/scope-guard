@@ -241,13 +241,13 @@ Migrate existing preproduction structured offers without another reset. Preserve
 
 #### Automated
 
-- [ ] 1.1 Contract tests prove base replacement history, exact-revision PIN decisions, idempotent activation, and stale-ID rejection.
-- [ ] 1.2 Contract tests prove direct pending/agreed mutation and deletion are denied, including foreign-contractor access.
-- [ ] 1.3 A deterministic concurrent-transaction test proves publication, original editing, and customer decision serialize on the offer lock.
+- [x] 1.1 Contract tests prove base replacement history, exact-revision PIN decisions, idempotent activation, and stale-ID rejection.
+- [x] 1.2 Contract tests prove direct pending/agreed mutation and deletion are denied, including foreign-contractor access.
+- [x] 1.3 A deterministic concurrent-transaction test proves publication, original editing, and customer decision serialize on the offer lock.
 
 #### Manual
 
-- [ ] 1.4 Review the migration on a local database and confirm a superseded customer view cannot decide the current proposal.
+- [x] 1.4 Review the migration on a local database and confirm a superseded customer view cannot decide the current proposal.
 
 ### Phase 2: Estimation and Templates
 

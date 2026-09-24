@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
 const url = process.env.API_URL ?? process.env.SUPABASE_URL;
@@ -33,6 +34,71 @@ function expectNoError(error, context) {
 async function expectError(request, context) {
   const { error } = await request;
   expect(error, `${context}: expected the request to fail`);
+}
+
+const pause = (milliseconds) => new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds));
+
+function itemPayload(item, quantity = Number(item.quantity)) {
+  return {
+    ...item,
+    quantity,
+    selling_rate_minor: Number(item.selling_rate_minor),
+    labor_hours_per_unit: Number(item.labor_hours_per_unit),
+  };
+}
+
+async function verifyOfferCommandLocks(offerIds, commands) {
+  // Keep the lock window below the local Supabase API request timeout while
+  // leaving enough time for every concurrent command to reach the database.
+  const lockMarker = 918273645;
+  const holdSeconds = 2;
+  const createSql = `create or replace function public.test_hold_offer_locks(p_offer_ids uuid[], p_hold_seconds integer)
+    returns void language plpgsql as $contract$
+    begin
+      perform pg_advisory_xact_lock(${lockMarker});
+      perform 1 from public.offers where id = any(p_offer_ids) order by id for update;
+      perform pg_sleep(p_hold_seconds);
+    end;
+    $contract$`;
+  const createResult = spawnSync("supabase", ["db", "query", "--local", createSql], { encoding: "utf8" });
+  expect(createResult.status === 0, `create local lock harness: ${createResult.stderr.trim()}`);
+  const ids = offerIds.map((id) => `'${id}'::uuid`).join(",");
+  const sql = `select public.test_hold_offer_locks(array[${ids}], ${holdSeconds})`;
+  const holder = spawn("supabase", ["db", "query", "--local", sql], {
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  const holderClosed = new Promise((resolve) => holder.once("close", resolve));
+  let holderError = "";
+  holder.stderr.setEncoding("utf8");
+  holder.stderr.on("data", (chunk) => {
+    holderError += chunk;
+  });
+  try {
+    let lockAcquired = false;
+    for (let attempt = 0; attempt < 8 && !lockAcquired; attempt += 1) {
+      const probe = spawnSync(
+        "supabase",
+        ["db", "query", "--local", "--output", "json", `select not pg_try_advisory_xact_lock(${lockMarker}) as locked`],
+        { encoding: "utf8" },
+      );
+      expect(probe.status === 0, `probe local offer lock: ${probe.stderr.trim()}`);
+      lockAcquired = /"locked"\s*:\s*true/i.test(probe.stdout);
+      if (!lockAcquired) await pause(100);
+    }
+    expect(lockAcquired, `local transaction must hold the offer locks: ${holderError.trim()}`);
+    const startedAt = Date.now();
+    const results = await Promise.all(commands.map((command) => command()));
+    const waitedMs = Date.now() - startedAt;
+    expect(waitedMs >= 750, "offer commands must wait for the held transaction to release its locks");
+    const exitCode = await holderClosed;
+    expect(exitCode === 0, `local offer-lock transaction failed: ${holderError.trim()}`);
+    return results;
+  } finally {
+    if (holder.exitCode === null) holder.kill();
+    await holderClosed;
+    const dropSql = "drop function if exists public.test_hold_offer_locks(uuid[], integer)";
+    spawnSync("supabase", ["db", "query", "--local", dropSql], { encoding: "utf8" });
+  }
 }
 
 async function createContractor(label) {
@@ -118,7 +184,7 @@ async function seedOffer({
 }
 
 async function seedChange(client, contractorId, offerId, description, priceDeltaMinor) {
-  const { data, error } = await client
+  const { data, error } = await admin
     .from("offer_changes")
     .insert({
       contractor_id: contractorId,
@@ -133,6 +199,9 @@ async function seedChange(client, contractorId, offerId, description, priceDelta
 }
 
 async function run() {
+  const anonymous = createClient(url, anonKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
   const contractorA = await createContractor("a");
   const contractorB = await createContractor("b");
   const futureDeadline = new Date();
@@ -214,6 +283,308 @@ async function run() {
       persistedNewOffer.base_deadline === deadline &&
       persistedNewOffer.items_revision === 1,
     "new-customer RPC must persist the item-derived offer with its returned customer",
+  );
+
+  const revisionOffer = await seedOffer({
+    client: contractorA.client,
+    contractorId: contractorA.id,
+    name: "revision history",
+    pinHash,
+  });
+  const { data: originalRevisionRows, error: originalRevisionError } = await contractorA.client
+    .from("offer_revisions")
+    .select("id, revision, status, items")
+    .eq("offer_id", revisionOffer.id)
+    .order("revision");
+  expectNoError(originalRevisionError, "read initial offer revision");
+  expect(
+    originalRevisionRows.length === 1 &&
+      originalRevisionRows[0].revision === 1 &&
+      originalRevisionRows[0].items.length === 1,
+    "new offers must retain their initial itemized base revision",
+  );
+  const { data: revisionItems, error: revisionItemsError } = await contractorA.client
+    .from("offer_items")
+    .select("id, name, quantity, unit, specification, selling_rate_minor, labor_hours_per_unit")
+    .eq("offer_id", revisionOffer.id)
+    .order("position");
+  expectNoError(revisionItemsError, "read revision offer items");
+  const replacementItems = revisionItems.map((item) => itemPayload(item, 2));
+  const { data: secondRevision, error: secondRevisionError } = await contractorA.client.rpc(
+    "replace_pending_offer_revision",
+    {
+      p_offer_id: revisionOffer.id,
+      p_expected_revision: 1,
+      p_base_scope: "Revised pending scope",
+      p_base_deadline: deadline,
+      p_items: replacementItems,
+    },
+  );
+  expectNoError(secondRevisionError, "replace a pending base revision");
+  expect(secondRevision === 2, "base replacement must increment the revision exactly once");
+  await expectError(
+    contractorA.client.rpc("replace_pending_offer_revision", {
+      p_offer_id: revisionOffer.id,
+      p_expected_revision: 1,
+      p_base_scope: "Stale replacement",
+      p_base_deadline: deadline,
+      p_items: replacementItems,
+    }),
+    "replace a base revision with a stale expected revision",
+  );
+  const { data: currentRevisionItems, error: currentRevisionItemsError } = await contractorA.client
+    .from("offer_items")
+    .select("id, name, quantity, unit, specification, selling_rate_minor, labor_hours_per_unit")
+    .eq("offer_id", revisionOffer.id)
+    .order("position");
+  expectNoError(currentRevisionItemsError, "read current revision items");
+  const { data: thirdRevision, error: thirdRevisionError } = await contractorA.client.rpc(
+    "replace_pending_offer_revision",
+    {
+      p_offer_id: revisionOffer.id,
+      p_expected_revision: 2,
+      p_base_scope: "Latest pending scope",
+      p_base_deadline: deadline,
+      p_items: currentRevisionItems.map((item) => itemPayload(item, 3)),
+    },
+  );
+  expectNoError(thirdRevisionError, "supersede a pending base revision");
+  expect(thirdRevision === 3, "second base replacement must advance to revision three");
+  const { data: revisionHistory, error: revisionHistoryError } = await contractorA.client
+    .from("offer_revisions")
+    .select("id, revision, status, superseded_by, decision_outcome, items")
+    .eq("offer_id", revisionOffer.id)
+    .order("revision");
+  expectNoError(revisionHistoryError, "read superseded base revision history");
+  expect(
+    revisionHistory.length === 3 &&
+      revisionHistory[0].status === "superseded" &&
+      revisionHistory[0].superseded_by === revisionHistory[1].id &&
+      revisionHistory[1].status === "superseded" &&
+      revisionHistory[1].superseded_by === revisionHistory[2].id &&
+      revisionHistory[2].status === "pending" &&
+      revisionHistory[0].items[0].quantity === 1 &&
+      revisionHistory[2].items[0].quantity === 3,
+    "each base replacement must preserve the prior immutable snapshot and supersession link",
+  );
+  await expectError(
+    anonymous.rpc("decide_shared_offer_revision", {
+      p_share_token: revisionOffer.share_token,
+      p_pin: "246810",
+      p_offer_revision_id: revisionHistory[0].id,
+      p_outcome: "accepted",
+    }),
+    "decide a superseded base revision",
+  );
+  const { data: acceptedRevision, error: acceptedRevisionError } = await anonymous.rpc("decide_shared_offer_revision", {
+    p_share_token: revisionOffer.share_token,
+    p_pin: "246810",
+    p_offer_revision_id: revisionHistory[2].id,
+    p_outcome: "accepted",
+  });
+  expectNoError(acceptedRevisionError, "accept the current base revision by PIN");
+  expect(acceptedRevision.outcome === "accepted", "PIN decision must bind to the current revision");
+  const { data: repeatedRevisionDecision, error: repeatedRevisionDecisionError } = await anonymous.rpc(
+    "decide_shared_offer_revision",
+    {
+      p_share_token: revisionOffer.share_token,
+      p_pin: "246810",
+      p_offer_revision_id: revisionHistory[2].id,
+      p_outcome: "accepted",
+    },
+  );
+  expectNoError(repeatedRevisionDecisionError, "repeat base revision PIN decision");
+  expect(
+    repeatedRevisionDecision.decided_at === acceptedRevision.decided_at &&
+      repeatedRevisionDecision.outcome === "accepted",
+    "repeated base revision decision must return the original decision",
+  );
+  const publishChange = async (revision, description, priceDelta, deadlineDelta = null) => {
+    const { data, error } = await contractorA.client.rpc("publish_offer_change", {
+      p_offer_id: revisionOffer.id,
+      p_expected_scope_revision: revision,
+      p_description: description,
+      p_price_delta_minor: priceDelta,
+      p_deadline_delta_days: deadlineDelta,
+      p_estimate_snapshot: { scope_revision: revision, commercial_adjustment_minor: priceDelta },
+      p_item_effects: [],
+      p_confirmed_impact: true,
+    });
+    expectNoError(error, description);
+    return data;
+  };
+  const oldProposalId = await publishChange(1, "First proposal", 1_000);
+  const currentProposalId = await publishChange(1, "Corrected proposal", 1_500);
+  const { data: proposalRows, error: proposalRowsError } = await contractorA.client
+    .from("offer_changes")
+    .select("id, status, proposal_revision, superseded_by, estimate_snapshot, item_effects")
+    .eq("offer_id", revisionOffer.id)
+    .order("proposal_revision");
+  expectNoError(proposalRowsError, "read immutable proposal revisions");
+  expect(
+    proposalRows.length === 2 &&
+      proposalRows[0].status === "superseded" &&
+      proposalRows[0].superseded_by === currentProposalId &&
+      proposalRows[1].status === "pending" &&
+      proposalRows[1].estimate_snapshot.scope_revision === 1 &&
+      Array.isArray(proposalRows[1].item_effects),
+    "publishing a correction must retain and link the superseded proposal snapshot",
+  );
+  await expectError(
+    anonymous.rpc("decide_shared_offer_change", {
+      p_share_token: revisionOffer.share_token,
+      p_pin: "246810",
+      p_offer_change_id: oldProposalId,
+      p_outcome: "accepted",
+    }),
+    "decide a superseded proposal",
+  );
+  const { data: acceptedChangeDecision, error: acceptedChangeDecisionError } = await anonymous.rpc(
+    "decide_shared_offer_change",
+    {
+      p_share_token: revisionOffer.share_token,
+      p_pin: "246810",
+      p_offer_change_id: currentProposalId,
+      p_outcome: "accepted",
+    },
+  );
+  expectNoError(acceptedChangeDecisionError, "accept current proposal by PIN");
+  const { data: repeatedChangeDecision, error: repeatedChangeDecisionError } = await anonymous.rpc(
+    "decide_shared_offer_change",
+    {
+      p_share_token: revisionOffer.share_token,
+      p_pin: "246810",
+      p_offer_change_id: currentProposalId,
+      p_outcome: "accepted",
+    },
+  );
+  expectNoError(repeatedChangeDecisionError, "repeat current proposal decision");
+  expect(
+    repeatedChangeDecision.decided_at === acceptedChangeDecision.decided_at &&
+      repeatedChangeDecision.outcome === "accepted",
+    "accepted proposal retries must return the persisted decision",
+  );
+  const { data: agreedChangeId, error: agreedChangeError } = await contractorA.client.rpc("publish_offer_change", {
+    p_offer_id: revisionOffer.id,
+    p_expected_scope_revision: 2,
+    p_description: "Confirmed no-impact correction",
+    p_price_delta_minor: 0,
+    p_deadline_delta_days: 0,
+    p_estimate_snapshot: { scope_revision: 2 },
+    p_item_effects: [],
+    p_confirmed_impact: true,
+  });
+  expectNoError(agreedChangeError, "publish a confirmed zero-impact correction");
+  const { data: agreedChange, error: agreedChangeReadError } = await contractorA.client
+    .from("offer_changes")
+    .select("status, price_delta_minor, deadline_delta_days, activation_order")
+    .eq("id", agreedChangeId)
+    .single();
+  expectNoError(agreedChangeReadError, "read confirmed zero-impact correction");
+  expect(
+    agreedChange.status === "agreed" &&
+      agreedChange.price_delta_minor === null &&
+      agreedChange.deadline_delta_days === null &&
+      agreedChange.activation_order !== null,
+    "confirmed zero-impact corrections must be agreed and activated exactly once",
+  );
+  const { data: activeItemsBeforeEffect, error: activeItemsBeforeEffectError } = await contractorA.client.rpc(
+    "get_effective_offer_items",
+    { p_offer_id: revisionOffer.id },
+  );
+  expectNoError(activeItemsBeforeEffectError, "read effective item projection before accepted effect");
+  const baselineItem = activeItemsBeforeEffect[0];
+  const { data: itemChangeId, error: itemChangeError } = await contractorA.client.rpc("publish_offer_change", {
+    p_offer_id: revisionOffer.id,
+    p_expected_scope_revision: 3,
+    p_description: "Increase agreed item quantity",
+    p_price_delta_minor: 10_000,
+    p_deadline_delta_days: null,
+    p_estimate_snapshot: { scope_revision: 3, commercial_adjustment_minor: 0 },
+    p_item_effects: [
+      {
+        item_id: baselineItem.id,
+        before: baselineItem,
+        after: {
+          id: baselineItem.id,
+          name: baselineItem.name,
+          quantity: 4,
+          unit: baselineItem.unit,
+          specification: baselineItem.specification,
+          selling_rate_minor: baselineItem.selling_rate_minor,
+          labor_hours_per_unit: baselineItem.labor_hours_per_unit,
+        },
+      },
+    ],
+    p_confirmed_impact: true,
+  });
+  expectNoError(itemChangeError, "publish an item quantity effect");
+  const { error: itemDecisionError } = await anonymous.rpc("decide_shared_offer_change", {
+    p_share_token: revisionOffer.share_token,
+    p_pin: "246810",
+    p_offer_change_id: itemChangeId,
+    p_outcome: "accepted",
+  });
+  expectNoError(itemDecisionError, "accept item quantity effect by PIN");
+  const { data: activeItemsAfterUpdate, error: activeItemsAfterUpdateError } = await contractorA.client.rpc(
+    "get_effective_offer_items",
+    { p_offer_id: revisionOffer.id },
+  );
+  expectNoError(activeItemsAfterUpdateError, "read effective item projection after accepted effect");
+  expect(
+    activeItemsAfterUpdate.length === 1 &&
+      activeItemsAfterUpdate[0].id === baselineItem.id &&
+      Number(activeItemsAfterUpdate[0].quantity) === 4 &&
+      Number(activeItemsAfterUpdate[0].line_amount_minor) === 40_000,
+    "accepted item effects must update the effective item while preserving its stable identity",
+  );
+  const addedItemId = randomUUID();
+  const { data: replaceItemChangeId, error: replaceItemChangeError } = await contractorA.client.rpc(
+    "publish_offer_change",
+    {
+      p_offer_id: revisionOffer.id,
+      p_expected_scope_revision: 4,
+      p_description: "Replace the affected item",
+      p_price_delta_minor: -10_000,
+      p_deadline_delta_days: null,
+      p_estimate_snapshot: { scope_revision: 4, commercial_adjustment_minor: 0 },
+      p_item_effects: [
+        { item_id: baselineItem.id, before: activeItemsAfterUpdate[0], after: null },
+        {
+          item_id: addedItemId,
+          before: null,
+          after: {
+            id: addedItemId,
+            name: "Replacement item",
+            quantity: 3,
+            unit: "piece",
+            specification: "Replacement specification",
+            selling_rate_minor: 10_000,
+            labor_hours_per_unit: 1,
+          },
+        },
+      ],
+      p_confirmed_impact: true,
+    },
+  );
+  expectNoError(replaceItemChangeError, "publish replacement item effects");
+  const { error: replaceItemDecisionError } = await anonymous.rpc("decide_shared_offer_change", {
+    p_share_token: revisionOffer.share_token,
+    p_pin: "246810",
+    p_offer_change_id: replaceItemChangeId,
+    p_outcome: "accepted",
+  });
+  expectNoError(replaceItemDecisionError, "accept replacement item effects by PIN");
+  const { data: effectiveReplacementItems, error: effectiveReplacementItemsError } = await contractorA.client.rpc(
+    "get_effective_offer_items",
+    { p_offer_id: revisionOffer.id },
+  );
+  expectNoError(effectiveReplacementItemsError, "read effective items after replacement");
+  expect(
+    effectiveReplacementItems.length === 1 &&
+      effectiveReplacementItems[0].id === addedItemId &&
+      Number(effectiveReplacementItems[0].quantity) === 3,
+    "activation order must apply removal and addition effects without editing original items",
   );
 
   const { data: newOfferItems, error: newOfferItemsError } = await contractorA.client
@@ -434,6 +805,13 @@ async function run() {
     "Accepted scope change",
     1_500,
   );
+  const protectedPendingChange = await seedChange(
+    contractorA.client,
+    contractorA.id,
+    revisionOffer.id,
+    "Protected pending change",
+    2_500,
+  );
   const rejectedChange = await seedChange(
     contractorB.client,
     contractorB.id,
@@ -489,7 +867,7 @@ async function run() {
   const { data: ownOffers, error: ownOffersError } = await contractorA.client.from("offers").select("id");
   expectNoError(ownOffersError, "contractor A reads own offers");
   expect(
-    ownOffers.length === 6 && ownOffers.every((offer) => offer.id !== offerB.id),
+    ownOffers.length === 7 && ownOffers.every((offer) => offer.id !== offerB.id),
     "contractor A must not read contractor B's offer",
   );
 
@@ -504,9 +882,6 @@ async function run() {
     "directly change an offer total outside the item RPC",
   );
 
-  const anonymous = createClient(url, anonKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
   await expectError(
     anonymous.rpc("create_offer_with_customer", {
       ...newOfferRequest,
@@ -591,7 +966,7 @@ async function run() {
     });
     if (!shouldSucceed) {
       await expectError(request, context);
-      const { error: cleanupError } = await contractorA.client.from("offer_changes").delete().eq("id", changeId);
+      const { error: cleanupError } = await admin.from("offer_changes").delete().eq("id", changeId);
       expectNoError(cleanupError, `${context}: remove failed verification change`);
       return;
     }
@@ -625,6 +1000,49 @@ async function run() {
   await expectError(
     contractorA.client.from("offer_changes").update({ status: "accepted" }).eq("id", acceptedChange),
     "contractor directly accepts a pending change",
+  );
+  await expectError(
+    contractorA.client
+      .from("offer_changes")
+      .update({ description: "Tampered proposal" })
+      .eq("id", protectedPendingChange),
+    "contractor directly mutates a pending proposal",
+  );
+  await expectError(
+    contractorA.client.from("offer_changes").delete().eq("id", protectedPendingChange),
+    "contractor directly deletes a pending proposal",
+  );
+  await expectError(
+    contractorB.client
+      .from("offer_changes")
+      .update({ description: "Foreign mutation" })
+      .eq("id", protectedPendingChange),
+    "foreign contractor attempts proposal mutation",
+  );
+  await expectError(
+    contractorB.client.from("offer_changes").delete().eq("id", protectedPendingChange),
+    "foreign contractor attempts proposal deletion",
+  );
+  const { data: protectedPendingRows, error: protectedPendingError } = await contractorA.client
+    .from("offer_changes")
+    .select("description, status")
+    .eq("id", protectedPendingChange)
+    .single();
+  expectNoError(protectedPendingError, "verify proposal survived foreign mutation attempts");
+  expect(
+    protectedPendingRows.description === "Protected pending change" && protectedPendingRows.status === "pending",
+    "foreign contractor cannot mutate or delete another contractor's proposal",
+  );
+  await expectError(
+    contractorA.client
+      .from("offer_changes")
+      .update({ description: "Tampered agreed correction" })
+      .eq("id", agreedChangeId),
+    "contractor directly mutates an agreed correction",
+  );
+  await expectError(
+    contractorA.client.from("offer_changes").delete().eq("id", agreedChangeId),
+    "contractor directly deletes an agreed correction",
   );
   await expectError(
     contractorA.client.from("change_decisions").insert({
@@ -807,6 +1225,89 @@ async function run() {
   expect(
     !JSON.stringify(browseFirstPage).match(/share_token|pin_hash|pin/i),
     "offer-list RPC must not expose share tokens or PIN material",
+  );
+
+  const lockEditOffer = await seedOffer({
+    client: contractorA.client,
+    contractorId: contractorA.id,
+    name: "lock original edit",
+    pinHash,
+  });
+  const lockDecisionOffer = await seedOffer({
+    client: contractorA.client,
+    contractorId: contractorA.id,
+    name: "lock customer decision",
+    pinHash,
+  });
+  const lockDecisionChangeId = await seedChange(
+    contractorA.client,
+    contractorA.id,
+    lockDecisionOffer.id,
+    "Change waiting on offer lock",
+    300,
+  );
+  const { data: lockEditState, error: lockEditStateError } = await contractorA.client
+    .from("offers")
+    .select("items_revision")
+    .eq("id", lockEditOffer.id)
+    .single();
+  expectNoError(lockEditStateError, "read original edit lock fixture");
+  const { data: lockEditItems, error: lockEditItemsError } = await contractorA.client
+    .from("offer_items")
+    .select("id, name, quantity, unit, specification, selling_rate_minor, labor_hours_per_unit")
+    .eq("offer_id", lockEditOffer.id)
+    .order("position");
+  expectNoError(lockEditItemsError, "read original edit lock fixture items");
+  const { data: lockPublishState, error: lockPublishStateError } = await contractorA.client
+    .from("offers")
+    .select("active_scope_revision")
+    .eq("id", revisionOffer.id)
+    .single();
+  expectNoError(lockPublishStateError, "read publication lock fixture");
+  const lockedCommands = await verifyOfferCommandLocks(
+    [lockEditOffer.id, revisionOffer.id, lockDecisionOffer.id],
+    [
+      async () => {
+        const { error } = await contractorA.client.rpc("edit_offer_items", {
+          p_offer_id: lockEditOffer.id,
+          p_expected_revision: lockEditState.items_revision,
+          p_items: lockEditItems.map((item) => itemPayload(item, 2)),
+        });
+        expectNoError(error, "edit original items after offer lock release");
+        return "edit";
+      },
+      async () => {
+        const { error } = await contractorA.client.rpc("publish_offer_change", {
+          p_offer_id: revisionOffer.id,
+          p_expected_scope_revision: lockPublishState.active_scope_revision,
+          p_description: "Publication waiting on offer lock",
+          p_price_delta_minor: 2_500,
+          p_deadline_delta_days: null,
+          p_estimate_snapshot: {
+            scope_revision: lockPublishState.active_scope_revision,
+            commercial_adjustment_minor: 2_500,
+          },
+          p_item_effects: [],
+          p_confirmed_impact: true,
+        });
+        expectNoError(error, "publish proposal after offer lock release");
+        return "publication";
+      },
+      async () => {
+        const { error } = await anonymous.rpc("decide_shared_offer_change", {
+          p_share_token: lockDecisionOffer.share_token,
+          p_pin: "246810",
+          p_offer_change_id: lockDecisionChangeId,
+          p_outcome: "accepted",
+        });
+        expectNoError(error, "decide proposal after offer lock release");
+        return "decision";
+      },
+    ],
+  );
+  expect(
+    lockedCommands.join(",") === "edit,publication,decision",
+    "original edits, proposal publication, and customer decisions must serialize behind the offer lock",
   );
 }
 
