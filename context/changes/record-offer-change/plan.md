@@ -241,25 +241,25 @@ Migrate existing preproduction structured offers without another reset. Preserve
 
 #### Automated
 
-- [x] 1.1 Contract tests prove base replacement history, exact-revision PIN decisions, idempotent activation, and stale-ID rejection.
-- [x] 1.2 Contract tests prove direct pending/agreed mutation and deletion are denied, including foreign-contractor access.
-- [x] 1.3 A deterministic concurrent-transaction test proves publication, original editing, and customer decision serialize on the offer lock.
+- [x] 1.1 Contract tests prove base replacement history, exact-revision PIN decisions, idempotent activation, and stale-ID rejection. — 7a4fc9a
+- [x] 1.2 Contract tests prove direct pending/agreed mutation and deletion are denied, including foreign-contractor access. — 7a4fc9a
+- [x] 1.3 A deterministic concurrent-transaction test proves publication, original editing, and customer decision serialize on the offer lock. — 7a4fc9a
 
 #### Manual
 
-- [x] 1.4 Review the migration on a local database and confirm a superseded customer view cannot decide the current proposal.
+- [x] 1.4 Review the migration on a local database and confirm a superseded customer view cannot decide the current proposal. — 7a4fc9a
 
 ### Phase 2: Estimation and Templates
 
 #### Automated
 
-- [ ] 2.1 Calculator tests cover half-grosz before/after subtraction, signed reductions, successive changes, exact effort, zero-hour inputs, and amount bounds.
-- [ ] 2.2 Tests cover partial-work credit, override reconciliation, missing inputs, incompatible units, and duplicate consequence suppression.
-- [ ] 2.3 Tests prove a saved estimate remains unchanged after its template is edited.
+- [x] 2.1 Calculator tests cover half-grosz before/after subtraction, signed reductions, successive changes, exact effort, zero-hour inputs, and amount bounds.
+- [x] 2.2 Tests cover partial-work credit, override reconciliation, missing inputs, incompatible units, and duplicate consequence suppression.
+- [x] 2.3 Tests prove a saved estimate remains unchanged after its template is edited.
 
 #### Manual
 
-- [ ] 2.4 A contractor reviews representative cases from all four trades and confirms that prompts reveal missing site facts without presenting example rates as market prices.
+- [x] 2.4 A contractor reviews representative cases from all four trades and confirms that prompts reveal missing site facts without presenting example rates as market prices.
 
 ### Phase 3: Contractor Workflow
 

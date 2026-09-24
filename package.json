@@ -11,7 +11,8 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "smoke": "node scripts/smoke.mjs",
-    "offer-contract": "node scripts/offer-contract.mjs"
+    "offer-contract": "node scripts/offer-contract.mjs",
+    "offer-change-estimator": "node --experimental-strip-types --test scripts/offer-change-estimator.test.ts"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.10",
