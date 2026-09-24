@@ -32,6 +32,21 @@ interface OfferItemRecord {
   line_amount_minor: string | number;
 }
 
+interface CurrentOfferRecord {
+  active_amount_minor: string | number;
+  active_deadline: string;
+  active_scope: { items: Omit<OfferItemRecord, "labor_hours_per_unit">[] };
+  changes: {
+    id: string;
+    description: string;
+    status: string;
+    price_delta_minor: string | number | null;
+    deadline_delta_days: number | null;
+    price_explanation: string;
+    decision: { outcome: string; rejection_comment: string | null; decided_at: string } | null;
+  }[];
+}
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const { user } = Astro.locals;
 const offerId = Astro.params.offerId ?? "";
@@ -44,6 +59,7 @@ let activeItems: OfferItemRecord[] = [];
 let pendingChange = false;
 let activeAmount = 0n;
 let activeDeadline = "";
+let currentOffer: CurrentOfferRecord | null = null;
 let changeTemplates: OfferChangeTemplate[] = [...STARTER_OFFER_CHANGE_TEMPLATES];
 let loadError = false;
 
@@ -59,17 +75,14 @@ if (supabase && user && UUID_PATTERN.test(offerId)) {
   loadError = Boolean(error);
   offer = data;
   if (offer) {
-    const [itemsResult, changesResult, effectiveItemsResult, templatesResult] = await Promise.all([
+    const [itemsResult, currentResult, effectiveItemsResult, templatesResult] = await Promise.all([
       supabase
         .from("offer_items")
         .select("id, name, quantity, unit, specification, selling_rate_minor, labor_hours_per_unit, line_amount_minor")
         .eq("offer_id", offer.id)
         .eq("contractor_id", user.id)
         .order("position", { ascending: true }),
-      supabase
-        .from("offer_changes")
-        .select("id, status, price_delta_minor, deadline_delta_days")
-        .eq("offer_id", offer.id),
+      supabase.rpc("get_contractor_offer_current", { p_offer_id: offer.id }),
       supabase.rpc("get_effective_offer_items", { p_offer_id: offer.id }),
       supabase
         .from("offer_change_templates")
@@ -81,10 +94,11 @@ if (supabase && user && UUID_PATTERN.test(offerId)) {
     ]);
     loadError =
       itemsResult.error !== null ||
-      changesResult.error !== null ||
+      currentResult.error !== null ||
       effectiveItemsResult.error !== null ||
       templatesResult.error !== null;
     items = itemsResult.data ?? [];
+    currentOffer = currentResult.data as CurrentOfferRecord | null;
     activeItems = (effectiveItemsResult.data ?? []) as OfferItemRecord[];
     const rawTemplates: unknown = templatesResult.data;
     const savedTemplates = Array.isArray(rawTemplates)
@@ -114,25 +128,13 @@ if (supabase && user && UUID_PATTERN.test(offerId)) {
         }))
       : [];
     changeTemplates = [...STARTER_OFFER_CHANGE_TEMPLATES, ...savedTemplates];
-    const rawChanges: unknown = changesResult.data;
-    const changeRows = Array.isArray(rawChanges)
-      ? (rawChanges as {
-          id: string;
-          status: string;
-          price_delta_minor: number | string | null;
-          deadline_delta_days: number | null;
-        }[])
-      : [];
+    const changeRows = currentOffer?.changes ?? [];
     hasChanges = changeRows.length > 0;
     pendingChange = changeRows.some((change) => change.status === "pending");
-    const activeChanges = changeRows.filter((change) => ["accepted", "agreed"].includes(change.status));
-    activeAmount =
-      BigInt(offer.base_amount_minor) +
-      activeChanges.reduce((sum, change) => sum + BigInt(change.price_delta_minor ?? 0), 0n);
-    const deadlineOffset = activeChanges.reduce((sum, change) => sum + (change.deadline_delta_days ?? 0), 0);
-    const effectiveDate = new Date(`${offer.base_deadline}T00:00:00Z`);
-    effectiveDate.setUTCDate(effectiveDate.getUTCDate() + deadlineOffset);
-    activeDeadline = effectiveDate.toISOString().slice(0, 10);
+    if (currentOffer) {
+      activeAmount = BigInt(currentOffer.active_amount_minor);
+      activeDeadline = currentOffer.active_deadline;
+    }
   }
 }
 
@@ -274,15 +276,38 @@ const lockReason = hasChanges
                 </div>
               </dl>
               <ul class="divide-y border-t">
-                {activeItems.map((item) => (
-                  <li class="flex flex-wrap justify-between gap-2 py-3 text-sm">
+                {currentOffer?.active_scope.items.map((item) => (
+                  <li class="flex flex-wrap justify-between gap-2 py-3 text-sm" data-current-item-id={item.id}>
                     <span>
-                      {item.name} · {item.quantity} {item.unit}
+                      {item.name} · {item.quantity} {item.unit} · {item.specification}
                     </span>
                     <span>{formatMinorAmount(BigInt(item.line_amount_minor))}</span>
                   </li>
                 ))}
               </ul>
+              <div data-current-amount-minor={activeAmount.toString()} data-current-deadline={activeDeadline}>
+                <h3 class="text-sm font-semibold">Change history and price explanation</h3>
+                <ol class="mt-2 space-y-3">
+                  {currentOffer?.changes.map((change) => (
+                    <li class="rounded-md border p-3 text-sm">
+                      <p class="font-medium">
+                        {change.description} · {change.status}
+                      </p>
+                      <p class="text-muted-foreground mt-1">{change.price_explanation}</p>
+                      <p class="mt-1">
+                        Price {formatMinorAmount(BigInt(change.price_delta_minor ?? 0))} · Deadline{" "}
+                        {change.deadline_delta_days ?? 0} days
+                      </p>
+                      {change.decision ? (
+                        <p class="text-muted-foreground mt-1">
+                          Customer {change.decision.outcome} on {formatDate(change.decision.decided_at.slice(0, 10))}
+                          {change.decision.rejection_comment ? `: ${change.decision.rejection_comment}` : ""}
+                        </p>
+                      ) : null}
+                    </li>
+                  ))}
+                </ol>
+              </div>
             </section>
           ) : null}
 

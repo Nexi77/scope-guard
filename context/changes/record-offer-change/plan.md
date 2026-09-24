@@ -265,21 +265,21 @@ Migrate existing preproduction structured offers without another reset. Preserve
 
 #### Automated
 
-- [x] 3.1 HTTP tests cover successful recording, malformed and oversized requests, stale revisions, anonymous access, and foreign offers.
-- [x] 3.2 Lint and build pass: `npm run lint` and `npm run build`.
+- [x] 3.1 HTTP tests cover successful recording, malformed and oversized requests, stale revisions, anonymous access, and foreign offers. — 2fc9b36
+- [x] 3.2 Lint and build pass: `npm run lint` and `npm run build`. — 2fc9b36
 
 #### Manual
 
-- [x] 3.3 On phone and desktop, create a base replacement, a price-changing proposal, and a zero-impact correction; verify clear totals, keyboard access, and actionable errors.
+- [x] 3.3 On phone and desktop, create a base replacement, a price-changing proposal, and a zero-impact correction; verify clear totals, keyboard access, and actionable errors. — 2fc9b36
 
 ### Phase 4: Current Reads and Decision Verification
 
 #### Automated
 
-- [ ] 4.1 Contract tests compare exact effective item values and active totals after accepted, agreed, pending, rejected, and superseded proposals.
-- [ ] 4.2 Tests prove private fields are absent, shared access stays within one offer, and repeated PIN decisions cannot duplicate effects.
-- [ ] 4.3 `npm run lint`, `npm run build`, `npm run offer-contract`, and configured `npm run smoke` pass.
+- [x] 4.1 Contract tests compare exact effective item values and active totals after accepted, agreed, pending, rejected, and superseded proposals.
+- [x] 4.2 Tests prove private fields are absent, shared access stays within one offer, and repeated PIN decisions cannot duplicate effects.
+- [x] 4.3 `npm run lint`, `npm run build`, `npm run offer-contract`, and configured `npm run smoke` pass.
 
 #### Manual
 
-- [ ] 4.4 Review contractor and shared representations of a successive accepted change, a rejected change, and a superseded open view; confirm scope, price explanation, and deadline agree.
+- [x] 4.4 Review contractor and shared representations of a successive accepted change, a rejected change, and a superseded open view; confirm scope, price explanation, and deadline agree.
