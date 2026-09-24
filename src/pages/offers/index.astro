@@ -285,6 +285,12 @@ const nextOfferHref = (() => {
                             <dd class="mt-1 font-semibold">{dateOnly(offer.current_deadline)}</dd>
                           </div>
                         </dl>
+                        <a
+                          href={`/offers/${encodeURIComponent(offer.offer_id)}`}
+                          class="text-primary mt-4 inline-flex min-h-9 items-center font-medium underline underline-offset-4 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                        >
+                          Review offer
+                        </a>
                         <div data-offer-id={offer.offer_id}>
                           <ManageOfferPin
                             offerId={offer.offer_id}

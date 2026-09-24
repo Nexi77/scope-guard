@@ -11,7 +11,8 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "smoke": "node scripts/smoke.mjs",
-    "offer-contract": "node scripts/offer-contract.mjs"
+    "offer-contract": "node scripts/offer-contract.mjs",
+    "offer-change-estimator": "node --experimental-strip-types --test scripts/offer-change-estimator.test.ts"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.10",
@@ -24,6 +25,7 @@
     "@radix-ui/react-dropdown-menu": "^2.1.24",
     "@radix-ui/react-select": "^2.3.7",
     "@radix-ui/react-slot": "^1.1.2",
+    "@radix-ui/react-toast": "^1.2.23",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.99.1",
     "@tailwindcss/vite": "^4.2.4",

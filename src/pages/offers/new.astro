@@ -3,15 +3,60 @@ import { AccountMenu } from "@/components/dashboard/AccountMenu";
 import ContractorNavigation from "@/components/dashboard/ContractorNavigation.astro";
 import CreateOfferForm from "@/components/offers/CreateOfferForm";
 import Layout from "@/layouts/Layout.astro";
+import { STARTER_OFFER_CHANGE_TEMPLATES, type OfferChangeTemplate } from "@/lib/offer-change-templates";
 import { createClient } from "@/lib/supabase";
 
 const { user } = Astro.locals;
 const supabase = createClient(Astro.request.headers, Astro.cookies);
-const { data: customers, error: customersError } = supabase
-  ? await supabase.from("customers").select("id, name").order("name", { ascending: true })
-  : { data: [], error: null };
+const [customersResult, templatesResult] = supabase
+  ? await Promise.all([
+      supabase.from("customers").select("id, name").order("name", { ascending: true }),
+      supabase
+        .from("offer_change_templates")
+        .select(
+          "id, version, trade, name, unit, prompts, selling_rate_minor, labor_hours_per_unit, companion_operations",
+        )
+        .eq("contractor_id", user?.id ?? "")
+        .order("name", { ascending: true }),
+    ])
+  : [
+      { data: [], error: null },
+      { data: [], error: null },
+    ];
+const customers = customersResult.data ?? [];
+const rawTemplates: unknown = templatesResult.data;
+const savedTemplates: OfferChangeTemplate[] = Array.isArray(rawTemplates)
+  ? (
+      rawTemplates as {
+        id: string;
+        version: number;
+        trade: OfferChangeTemplate["trade"];
+        name: string;
+        unit: OfferChangeTemplate["unit"];
+        prompts: string[];
+        selling_rate_minor: number | string | null;
+        labor_hours_per_unit: number | string | null;
+        companion_operations: OfferChangeTemplate["companionOperations"];
+      }[]
+    ).map((template) => ({
+      id: template.id,
+      version: template.version,
+      contractorId: user?.id ?? "saved",
+      trade: template.trade,
+      name: template.name,
+      unit: template.unit,
+      prompts: template.prompts,
+      sellingRateMinor: template.selling_rate_minor === null ? null : String(template.selling_rate_minor),
+      laborHoursPerUnit: template.labor_hours_per_unit === null ? null : String(template.labor_hours_per_unit),
+      companionOperations: template.companion_operations,
+    }))
+  : [];
+const templates = [...STARTER_OFFER_CHANGE_TEMPLATES, ...savedTemplates];
+const customersError = customersResult.error;
+const templatesError = templatesResult.error;
 const error = Astro.url.searchParams.get("error");
 const created = Astro.url.searchParams.get("created") === "1";
+const createdOfferId = Astro.url.searchParams.get("offer");
 const createdCustomerId = Astro.url.searchParams.get("customer");
 ---
 
@@ -39,7 +84,7 @@ const createdCustomerId = Astro.url.searchParams.get("customer");
       <div class="mb-8 mt-5 space-y-2">
         <h1 class="text-3xl font-semibold tracking-tight">Create an offer</h1>
         <p class="text-muted-foreground max-w-2xl">
-          Capture the original scope, price, deadline, and customer before changes begin.
+          Capture the original scope, itemized price, deadline, and customer before changes begin.
         </p>
       </div>
       {customersError ? (
@@ -50,13 +95,25 @@ const createdCustomerId = Astro.url.searchParams.get("customer");
           Your customers could not be loaded. Refresh the page and try again.
         </p>
       ) : (
-        <CreateOfferForm
-          client:load
-          customers={customers}
-          serverError={error}
-          created={created}
-          createdCustomerId={createdCustomerId}
-        />
+        <>
+          {templatesError ? (
+            <p
+              class="border-destructive/30 bg-destructive/10 text-destructive mb-4 rounded-md border px-4 py-3 text-sm"
+              role="status"
+            >
+              Saved templates could not be loaded. Starter templates are still available.
+            </p>
+          ) : null}
+          <CreateOfferForm
+            client:load
+            customers={customers}
+            templates={templates}
+            serverError={error}
+            created={created}
+            createdOfferId={createdOfferId}
+            createdCustomerId={createdCustomerId}
+          />
+        </>
       )}
     </main>
   </div>

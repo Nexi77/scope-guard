@@ -2,8 +2,17 @@
 // Zero dependencies on purpose. Run against a live server: BASE_URL=http://localhost:4321 node scripts/smoke.mjs
 
 import { URL } from "node:url";
+import { createClient } from "@supabase/supabase-js";
 
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:4321";
+const supabaseUrl = process.env.API_URL ?? process.env.SUPABASE_URL;
+const supabaseAnonKey = process.env.ANON_KEY ?? process.env.SUPABASE_KEY;
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error("Smoke test requires the local Supabase API_URL and ANON_KEY.");
+}
+const sharedClient = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: { autoRefreshToken: false, persistSession: false },
+});
 const email = `smoke-${Date.now()}@example.com`;
 const foreignEmail = `smoke-foreign-${Date.now()}@example.com`;
 const password = "Smoke-Test-Passw0rd!";
@@ -119,15 +128,66 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function customerIdFromLocation(location) {
-  return new URL(location, BASE_URL).searchParams.get("customer");
+function standardItems(rateMinor = 125_000) {
+  return [
+    {
+      name: "Smoke-tested work item",
+      quantity: 1,
+      unit: "piece",
+      specification: "Smoke-tested specification",
+      selling_rate_minor: rateMinor,
+      labor_hours_per_unit: 1.25,
+    },
+  ];
+}
+
+function primaryItems() {
+  return [
+    {
+      name: "Painted wall",
+      quantity: 1.25,
+      unit: "m²",
+      specification: "Two coats, white finish",
+      selling_rate_minor: 99_800,
+      labor_hours_per_unit: 0.4,
+    },
+    {
+      name: "Socket installation",
+      quantity: 2,
+      unit: "piece",
+      specification: "White recessed socket",
+      selling_rate_minor: 125,
+      labor_hours_per_unit: 0.25,
+    },
+  ];
+}
+
+function offerIdFromLocation(location) {
+  const url = new URL(location, BASE_URL);
+  return url.searchParams.get("offer") ?? url.pathname.match(/^\/offers\/([0-9a-f-]{36})$/i)?.[1] ?? null;
+}
+
+function itemIdsFromPage(body) {
+  return [...body.matchAll(/data-offer-item-id="([0-9a-f-]{36})"/gi)].map((match) => match[1]);
+}
+
+function itemLineAmountsFromPage(body) {
+  return [...body.matchAll(/data-line-amount-minor="(\d+)"/gi)].map((match) => match[1]);
+}
+
+function offerTotalFromPage(body) {
+  return body.match(/data-offer-total-minor="(\d+)"/i)?.[1] ?? null;
 }
 
 const customerName = `Smoke customer ${Date.now()}`;
+const malformedCustomerName = `Malformed items customer ${Date.now()}`;
+const oversizedCustomerName = `Oversized items customer ${Date.now()}`;
 const foreignCustomerName = `Foreign smoke customer ${Date.now()}`;
 const foreignScope = "Foreign contractor private scope";
 let createdCustomerId = null;
 let reusedCustomerId = null;
+let reusedOfferId = null;
+let publishableChange = null;
 let foreignCustomerId = null;
 let offerId = null;
 let foreignOfferId = null;
@@ -168,7 +228,14 @@ const steps = [
   ],
   ["dashboard renders for signed-in user", () => request("/dashboard"), { status: 200 }],
   ["offer browser renders signed-in empty state", () => request("/offers"), { status: 200, body: "No customers yet" }],
-  ["offer creation form renders for signed-in user", () => request("/offers/new"), { status: 200 }],
+  [
+    "offer creation form renders trade template selection for signed-in user",
+    () => request("/offers/new"),
+    {
+      status: 200,
+      body: ["Choose a template (optional)", "Start work items from a trade template", "Starter prompts"],
+    },
+  ],
   [
     "offer creation rejects invalid submission",
     () =>
@@ -184,7 +251,45 @@ const steps = [
     { status: 302, location: "/offers/new?error=" },
   ],
   [
-    "offer creation redirects to confirmation",
+    "oversized offer request is rejected before creating a customer",
+    async () => {
+      const rejected = await request("/api/offers", {
+        method: "POST",
+        form: {
+          customer_name: oversizedCustomerName,
+          confirm_duplicate: "false",
+          base_scope: "Must not be saved",
+          base_deadline: today(),
+          items_json: " ".repeat(512 * 1024 + 1),
+        },
+      });
+      if (rejected.status !== 302 || !rejected.location.startsWith("/offers/new?error=")) return rejected;
+      return request(`/offers?q=${encodeURIComponent(oversizedCustomerName)}`);
+    },
+    { status: 200, body: "No matching customers", absentBody: ["Must not be saved"] },
+  ],
+  [
+    "malformed item creation leaves no partial customer or offer",
+    async () => {
+      const rejected = await request("/api/offers", {
+        method: "POST",
+        form: {
+          customer_name: malformedCustomerName,
+          confirm_duplicate: "false",
+          base_scope: "Must not be saved",
+          base_deadline: today(),
+          items_json: JSON.stringify([{ ...standardItems()[0], quantity: 0 }]),
+        },
+      });
+      if (rejected.status !== 302 || !rejected.location.startsWith("/offers/new?error=")) {
+        return { ...rejected, body: `malformed-create-status-${rejected.status}` };
+      }
+      return request(`/offers?q=${encodeURIComponent(malformedCustomerName)}`);
+    },
+    { status: 200, body: "No matching customers", absentBody: ["Must not be saved"] },
+  ],
+  [
+    "offer creation redirects directly to the saved offer detail",
     async () => {
       const creation = await request("/api/offers", {
         method: "POST",
@@ -192,27 +297,112 @@ const steps = [
           customer_name: customerName,
           confirm_duplicate: "false",
           base_scope: "Smoke-tested original scope",
-          base_amount: "1,250.00",
           base_deadline: today(),
+          items_json: JSON.stringify(primaryItems()),
         },
       });
-      createdCustomerId = customerIdFromLocation(creation.location);
-      return creation;
+      offerId = offerIdFromLocation(creation.location);
+      const form = await request("/offers/new");
+      createdCustomerId = customerIdFromPage(form.body, customerName);
+      const detail = await request(creation.location);
+      return { ...detail, location: creation.location };
     },
     {
-      status: 302,
-      locationPattern: /^\/offers\/new\?created=1&customer=[0-9a-f-]{36}$/i,
-      check: () => Boolean(createdCustomerId),
+      status: 200,
+      locationPattern: /^\/offers\/[0-9a-f-]{36}$/i,
+      body: ["Offer details", "Smoke-tested original scope"],
+      check: () => Boolean(createdCustomerId && offerId),
     },
   ],
   [
-    "new-customer creation confirmation links to the owned customer group",
-    () => request(`/offers/new?created=1&customer=${createdCustomerId}`),
+    "offer detail shows item lines, rounded total, deadline, and private effort",
+    () => request(`/offers/${offerId}`),
     {
       status: 200,
-      body: ["Offer created", "View this customer’s offers", "Create another offer"],
-      check: (actual) => actual.body.includes(`/offers?customer=${createdCustomerId}`),
+      body: ["Painted wall", "Socket installation", "2,50 zł", "Labor hours/unit (private)", "0.4"],
+      check: (actual) =>
+        itemIdsFromPage(actual.body).length === 2 &&
+        JSON.stringify(itemLineAmountsFromPage(actual.body)) === JSON.stringify(["124750", "250"]) &&
+        offerTotalFromPage(actual.body) === "125000",
     },
+  ],
+  [
+    "oversized item JSON is rejected before parsing or editing",
+    () =>
+      request(`/api/offers/${offerId}/items`, {
+        method: "POST",
+        form: { expected_revision: "1", items_json: " ".repeat(256 * 1024 + 1) },
+      }),
+    { status: 413, body: "Offer items are too large" },
+  ],
+  [
+    "offer item edit succeeds before change history and advances the revision",
+    async () => {
+      const details = await request(`/offers/${offerId}`);
+      const itemIds = itemIdsFromPage(details.body);
+      const changedItems = primaryItems();
+      changedItems[0].quantity = 1.5;
+      return request(`/api/offers/${offerId}/items`, {
+        method: "POST",
+        form: {
+          expected_revision: "1",
+          items_json: JSON.stringify(changedItems.map((item, index) => ({ ...item, id: itemIds[index] }))),
+        },
+      });
+    },
+    { status: 200, body: '"revision":2' },
+  ],
+  [
+    "edited offer detail reflects the recalculated total",
+    () => request(`/offers/${offerId}`),
+    {
+      status: 200,
+      body: "Painted wall",
+      check: (actual) =>
+        JSON.stringify(itemLineAmountsFromPage(actual.body)) === JSON.stringify(["149700", "250"]) &&
+        offerTotalFromPage(actual.body) === "149950",
+    },
+  ],
+  [
+    "malformed and stale item edits are rejected without changing the saved total",
+    async () => {
+      const detailsBefore = await request(`/offers/${offerId}`);
+      const itemIds = itemIdsFromPage(detailsBefore.body);
+      const validItems = primaryItems().map((item, index) => ({ ...item, id: itemIds[index] }));
+      const invalid = await request(`/api/offers/${offerId}/items`, {
+        method: "POST",
+        form: {
+          expected_revision: "2",
+          items_json: JSON.stringify([{ ...validItems[0], quantity: 0 }, validItems[1]]),
+        },
+      });
+      if (invalid.status !== 400) return { ...invalid, body: `invalid-edit-status-${invalid.status}` };
+      const stale = await request(`/api/offers/${offerId}/items`, {
+        method: "POST",
+        form: { expected_revision: "1", items_json: JSON.stringify(validItems) },
+      });
+      if (stale.status !== 409) return { ...stale, body: `stale-edit-status-${stale.status}` };
+      const detailsAfter = await request(`/offers/${offerId}`);
+      const amounts = itemLineAmountsFromPage(detailsAfter.body);
+      return {
+        ...detailsAfter,
+        body: `${invalid.body} ${stale.body} lines:${amounts.join(",")} total:${offerTotalFromPage(detailsAfter.body)}`,
+      };
+    },
+    {
+      status: 200,
+      body: ["positive quantity", "changed while you were editing", "lines:149700,250", "total:149950"],
+    },
+  ],
+  [
+    "anonymous contractor cannot edit an offer's items",
+    () =>
+      request(
+        `/api/offers/${offerId}/items`,
+        { method: "POST", form: { expected_revision: "2", items_json: "[]" } },
+        new Map(),
+      ),
+    { status: 401, body: "Sign in to edit this offer" },
   ],
   [
     "new-customer offer group renders scope, status, current price, and deadline",
@@ -315,29 +505,20 @@ const steps = [
         form: {
           customer_id: customerId,
           base_scope: "Smoke-tested reused customer scope",
-          base_amount: "2.50",
           base_deadline: today(),
+          items_json: JSON.stringify(standardItems(250)),
         },
       });
       reusedCustomerId = customerId;
-      return created;
-    },
-    { status: 302, locationPattern: /^\/offers\/new\?created=1&customer=[0-9a-f-]{36}$/i },
-  ],
-  [
-    "offer creation confirmation renders",
-    () => request("/offers/new?created=1"),
-    { status: 200, body: "Offer created" },
-  ],
-  [
-    "reused-customer confirmation links to the same group",
-    async () => {
-      return request(`/offers/new?created=1&customer=${reusedCustomerId}`);
+      reusedOfferId = offerIdFromLocation(created.location);
+      const detail = await request(created.location);
+      return { ...detail, location: created.location };
     },
     {
       status: 200,
-      body: "Offer created",
-      check: (actual) => actual.body.includes(`/offers?customer=${reusedCustomerId}`),
+      locationPattern: /^\/offers\/[0-9a-f-]{36}$/i,
+      body: "Smoke-tested reused customer scope",
+      check: () => Boolean(reusedOfferId && reusedCustomerId),
     },
   ],
   [
@@ -349,7 +530,7 @@ const steps = [
         "Smoke-tested reused customer scope",
         "Smoke-tested original scope",
         "2,50 zł",
-        "1250,00 zł",
+        "499,50 zł",
         "pending",
         today(),
       ],
@@ -373,30 +554,361 @@ const steps = [
             customer_name: foreignCustomerName,
             confirm_duplicate: "false",
             base_scope: foreignScope,
-            base_amount: "9.99",
             base_deadline: today(),
+            items_json: JSON.stringify(standardItems(999)),
           },
         },
         foreignJar,
       );
-      foreignCustomerId = customerIdFromLocation(creation.location);
+      foreignOfferId = offerIdFromLocation(creation.location);
+      const foreignForm = await request("/offers/new", {}, foreignJar);
+      foreignCustomerId = customerIdFromPage(foreignForm.body, foreignCustomerName);
       return { ...creation, body: foreignCustomerId ? "foreign-customer-created" : creation.body };
     },
     {
       status: 302,
-      locationPattern: /^\/offers\/new\?created=1&customer=[0-9a-f-]{36}$/i,
+      locationPattern: /^\/offers\/[0-9a-f-]{36}$/i,
       body: "foreign-customer-created",
+    },
+  ],
+  [
+    "foreign offer detail and item edits reveal no offer data",
+    async () => {
+      const detail = await request(`/offers/${foreignOfferId}`);
+      const edit = await request(`/api/offers/${foreignOfferId}/items`, {
+        method: "POST",
+        form: { expected_revision: "1", items_json: JSON.stringify(standardItems()) },
+      });
+      return { ...detail, body: `${detail.body} ${edit.body} edit-status-${edit.status}` };
+    },
+    {
+      status: 404,
+      body: ["Offer unavailable", "Offer is unavailable", "edit-status-404"],
+      absentBody: [foreignCustomerName, foreignScope],
     },
   ],
   [
     "foreign offer PIN cannot be managed by this contractor",
     async () => {
-      const page = await request(`/offers?customer=${foreignCustomerId}`, {}, foreignJar);
-      foreignOfferId = offerIdFromPage(page.body);
-      if (!foreignOfferId) return { ...page, status: 0, body: "foreign offer unavailable" };
+      if (!foreignOfferId) return { status: 0, location: "", body: "foreign offer unavailable" };
       return request(`/api/offers/${foreignOfferId}/pin`, { method: "POST" });
     },
-    { status: 404, body: "PIN could not be managed", absentBody: ["pin_hash", "share_token"] },
+    { status: 404, body: "Offer is unavailable", absentBody: ["pin_hash", "share_token"] },
+  ],
+  [
+    "pending offer revision is recorded atomically",
+    () =>
+      request(`/api/offers/${reusedOfferId}/revision`, {
+        method: "POST",
+        form: {
+          expected_revision: "1",
+          base_scope: "Revised smoke-tested scope",
+          base_deadline: today(),
+          items_json: JSON.stringify(standardItems(300)),
+        },
+      }),
+    { status: 200, body: '"revision":2' },
+  ],
+  [
+    "offer version history retains both the superseded and current snapshots",
+    () => request(`/offers/${reusedOfferId}`),
+    {
+      status: 200,
+      body: ["Offer version history", "Smoke-tested reused customer scope", "Revised smoke-tested scope"],
+      check: (actual) =>
+        /data-offer-revision="1"[^>]*data-revision-status="superseded"[^>]*data-revision-amount-minor="250"/.test(
+          actual.body,
+        ) &&
+        /data-offer-revision="2"[^>]*data-revision-status="pending"[^>]*data-revision-amount-minor="300"/.test(
+          actual.body,
+        ),
+    },
+  ],
+  [
+    "malformed offer revision is rejected",
+    () =>
+      request(`/api/offers/${reusedOfferId}/revision`, {
+        method: "POST",
+        form: {
+          expected_revision: "2",
+          base_scope: "Malformed revision",
+          base_deadline: today(),
+          items_json: "{",
+        },
+      }),
+    { status: 400, body: "invalid JSON" },
+  ],
+  [
+    "oversized offer revision is rejected",
+    () =>
+      request(`/api/offers/${reusedOfferId}/revision`, {
+        method: "POST",
+        form: {
+          expected_revision: "2",
+          base_scope: "Oversized revision",
+          base_deadline: today(),
+          items_json: " ".repeat(256 * 1024 + 1),
+        },
+      }),
+    { status: 413, body: "Offer items are too large" },
+  ],
+  [
+    "stale offer revision is rejected",
+    () =>
+      request(`/api/offers/${reusedOfferId}/revision`, {
+        method: "POST",
+        form: {
+          expected_revision: "1",
+          base_scope: "Stale revision",
+          base_deadline: today(),
+          items_json: JSON.stringify(standardItems(300)),
+        },
+      }),
+    { status: 409, body: "changed or was accepted" },
+  ],
+  [
+    "change preview rejects malformed and oversized requests",
+    async () => {
+      const malformed = await request(`/api/offers/${reusedOfferId}/changes/preview`, {
+        method: "POST",
+        form: { change_json: "{" },
+      });
+      const oversized = await request(`/api/offers/${reusedOfferId}/changes/preview`, {
+        method: "POST",
+        form: { change_json: " ".repeat(256 * 1024 + 1) },
+      });
+      return { ...oversized, body: `${malformed.body} ${oversized.body} oversized:${oversized.status}` };
+    },
+    { status: 413, body: ["invalid JSON", "oversized:413"] },
+  ],
+  [
+    "out-of-range commercial adjustments return field errors for preview and publication",
+    async () => {
+      const invalidChange = {
+        expected_scope_revision: 1,
+        description: "Invalid commercial adjustment",
+        target_deadline: today(),
+        effects: [],
+        commercial_adjustment_minor: "10000000000000000",
+      };
+      const preview = await request(`/api/offers/${reusedOfferId}/changes/preview`, {
+        method: "POST",
+        form: { change_json: JSON.stringify(invalidChange) },
+      });
+      const publication = await request(`/api/offers/${reusedOfferId}/changes/`, {
+        method: "POST",
+        form: { change_json: JSON.stringify({ ...invalidChange, commercial_adjustment_minor: "-10000000000000000" }) },
+      });
+      return { ...preview, body: `${preview.body} ${publication.body}`, publicationStatus: publication.status };
+    },
+    {
+      status: 400,
+      body: ["outside the supported amount range", '"commercial_adjustment_minor"'],
+      check: (actual) =>
+        actual.publicationStatus === 400 && (actual.body.match(/"commercial_adjustment_minor"/g) ?? []).length === 2,
+    },
+  ],
+  [
+    "change preview rejects stale scope revisions",
+    () =>
+      request(`/api/offers/${reusedOfferId}/changes/preview`, {
+        method: "POST",
+        form: {
+          change_json: JSON.stringify({
+            expected_scope_revision: 999,
+            description: "Stale estimate",
+            target_deadline: today(),
+            effects: [],
+          }),
+        },
+      }),
+    { status: 409, body: "scope changed" },
+  ],
+  [
+    "anonymous change preview is rejected",
+    () =>
+      request(
+        `/api/offers/${reusedOfferId}/changes/preview`,
+        { method: "POST", form: { change_json: "{}" } },
+        new Map(),
+      ),
+    { status: 401, body: "Sign in" },
+  ],
+  [
+    "foreign offer change preview is unavailable",
+    () =>
+      request(`/api/offers/${foreignOfferId}/changes/preview`, {
+        method: "POST",
+        form: { change_json: JSON.stringify({ expected_scope_revision: 1, description: "Foreign", effects: [] }) },
+      }),
+    { status: 404, body: "Offer is unavailable" },
+  ],
+  [
+    "contractor change template is saved for reuse",
+    () =>
+      request(`/api/offers/${reusedOfferId}/templates`, {
+        method: "POST",
+        form: {
+          template_json: JSON.stringify({
+            trade: "painting",
+            name: "Smoke saved painting template",
+            unit: "m²",
+            prompts: ["Confirm substrate."],
+            selling_rate_minor: "12500",
+            labor_hours_per_unit: "0.5",
+            companion_operations: [],
+          }),
+        },
+      }),
+    { status: 201, body: "Smoke saved painting template" },
+  ],
+  [
+    "anonymous contractor cannot save a change template",
+    () =>
+      request(`/api/offers/${reusedOfferId}/templates`, { method: "POST", form: { template_json: "{}" } }, new Map()),
+    { status: 401, body: "Sign in" },
+  ],
+  [
+    "foreign offer cannot be used to save a change template",
+    () =>
+      request(`/api/offers/${foreignOfferId}/templates`, {
+        method: "POST",
+        form: {
+          template_json: JSON.stringify({
+            trade: "painting",
+            name: "Foreign template",
+            unit: "piece",
+            prompts: [],
+            selling_rate_minor: null,
+            labor_hours_per_unit: null,
+            companion_operations: [],
+          }),
+        },
+      }),
+    { status: 404, body: "Offer is unavailable" },
+  ],
+  [
+    "customer accepts the current base revision with the offer PIN",
+    async () => {
+      const contractor = createClient(supabaseUrl, supabaseAnonKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      const { error: signInError } = await contractor.auth.signInWithPassword({ email, password });
+      if (signInError) return { status: 0, body: "Could not authenticate the smoke contractor with local Supabase." };
+      const { data: offer, error: offerError } = await contractor
+        .from("offers")
+        .select("share_token")
+        .eq("id", reusedOfferId)
+        .single();
+      if (offerError || !offer?.share_token)
+        return { status: 0, body: "Could not read the smoke contractor's offer token." };
+      const pinResponse = await request(`/api/offers/${reusedOfferId}/pin`, { method: "POST" });
+      let pin;
+      try {
+        pin = JSON.parse(pinResponse.body).pin;
+      } catch {
+        return { status: 0, body: "Could not generate the smoke offer PIN." };
+      }
+      if (pinResponse.status !== 200 || !/^\d{6}$/.test(pin))
+        return { status: 0, body: "Could not generate a valid smoke offer PIN." };
+      const { data: shared, error: sharedError } = await sharedClient.rpc("get_shared_offer", {
+        p_share_token: offer.share_token,
+      });
+      if (sharedError || !shared?.base_revision?.id)
+        return { status: 0, body: "Could not read the current shared offer revision." };
+      const { data: decision, error: decisionError } = await sharedClient.rpc("decide_shared_offer_revision", {
+        p_share_token: offer.share_token,
+        p_pin: pin,
+        p_offer_revision_id: shared.base_revision.id,
+        p_outcome: "accepted",
+      });
+      if (decisionError || decision?.status !== "accepted")
+        return { status: 0, body: "Could not accept the current smoke offer revision." };
+      const { data: items, error: itemsError } = await contractor
+        .from("offer_items")
+        .select("id, name, quantity, unit, specification, selling_rate_minor, labor_hours_per_unit")
+        .eq("offer_id", reusedOfferId)
+        .order("position", { ascending: true });
+      if (itemsError || items?.length !== 1)
+        return { status: 0, body: "Could not read the accepted smoke offer item." };
+      const item = items[0];
+      const before = {
+        id: item.id,
+        name: item.name,
+        quantity: Number(item.quantity),
+        unit: item.unit,
+        specification: item.specification,
+        selling_rate_minor: Number(item.selling_rate_minor),
+        labor_hours_per_unit: Number(item.labor_hours_per_unit),
+      };
+      publishableChange = {
+        expected_scope_revision: 1,
+        expected_pending_change_id: null,
+        supersession_confirmed: false,
+        description: "Add one smoke-tested work item unit",
+        target_deadline: today(),
+        effects: [{ itemId: item.id, before, after: { ...before, quantity: 2 } }],
+        commercial_adjustment_minor: "0",
+      };
+      return { status: 200, location: "", body: "Accepted current base revision and prepared its item effect." };
+    },
+    { status: 200, body: "Accepted current base revision" },
+  ],
+  [
+    "change publication rejects malformed effect details",
+    () =>
+      request(`/api/offers/${reusedOfferId}/changes/`, {
+        method: "POST",
+        form: { change_json: JSON.stringify({ ...publishableChange, effects: [{ itemId: "invalid" }] }) },
+      }),
+    { status: 400, body: "affected item" },
+  ],
+  [
+    "change publication rejects stale scope revisions",
+    () =>
+      request(`/api/offers/${reusedOfferId}/changes/`, {
+        method: "POST",
+        form: { change_json: JSON.stringify({ ...publishableChange, expected_scope_revision: 999 }) },
+      }),
+    { status: 409, body: "scope changed" },
+  ],
+  [
+    "anonymous contractor cannot publish a change",
+    () =>
+      request(
+        `/api/offers/${reusedOfferId}/changes/`,
+        { method: "POST", form: { change_json: JSON.stringify(publishableChange) } },
+        new Map(),
+      ),
+    { status: 401, body: "Sign in" },
+  ],
+  [
+    "foreign contractor's offer is unavailable for publication",
+    () =>
+      request(`/api/offers/${foreignOfferId}/changes/`, {
+        method: "POST",
+        form: { change_json: JSON.stringify(publishableChange) },
+      }),
+    { status: 404, body: "Offer is unavailable" },
+  ],
+  [
+    "accepted offer publishes an estimated change through HTTP",
+    () =>
+      request(`/api/offers/${reusedOfferId}/changes/`, {
+        method: "POST",
+        form: { change_json: JSON.stringify(publishableChange) },
+      }),
+    {
+      status: 201,
+      body: ['"success":true', '"priceDeltaMinor":"300"'],
+      check: (actual) => {
+        try {
+          return /^[0-9a-f-]{36}$/i.test(JSON.parse(actual.body).changeId);
+        } catch {
+          return false;
+        }
+      },
+    },
   ],
   [
     "invalid customer query shows a safe unavailable state",

@@ -1,0 +1,458 @@
+---
+import { AccountMenu } from "@/components/dashboard/AccountMenu";
+import ContractorNavigation from "@/components/dashboard/ContractorNavigation.astro";
+import EditOfferItemsForm from "@/components/offers/EditOfferItemsForm";
+import OfferChangeForm from "@/components/offers/OfferChangeForm";
+import ReplacePendingOfferForm from "@/components/offers/ReplacePendingOfferForm";
+import Layout from "@/layouts/Layout.astro";
+import { formatMinorAmount, draftFromOfferItem } from "@/lib/offer-items";
+import { STARTER_OFFER_CHANGE_TEMPLATES, type OfferChangeTemplate } from "@/lib/offer-change-templates";
+import { createClient } from "@/lib/supabase";
+
+interface OfferRecord {
+  id: string;
+  base_scope: string;
+  base_amount_minor: string | number;
+  base_deadline: string;
+  currency_code: string;
+  status: string;
+  items_revision: number;
+  active_scope_revision: number;
+  base_revision: number;
+}
+
+interface OfferItemRecord {
+  id: string;
+  name: string;
+  quantity: string | number;
+  unit: string;
+  specification: string;
+  selling_rate_minor: string | number;
+  labor_hours_per_unit: string | number;
+  line_amount_minor: string | number;
+}
+
+interface OfferRevisionRecord {
+  id: string;
+  revision: number;
+  base_scope: string;
+  base_amount_minor: string | number;
+  base_deadline: string;
+  items: OfferItemRecord[];
+  status: "pending" | "accepted" | "rejected" | "superseded";
+  created_at: string;
+  decided_at: string | null;
+  rejection_comment: string | null;
+}
+
+interface CurrentOfferRecord {
+  active_amount_minor: string | number;
+  active_deadline: string;
+  active_scope: { items: Omit<OfferItemRecord, "labor_hours_per_unit">[] };
+  changes: {
+    id: string;
+    description: string;
+    status: string;
+    price_delta_minor: string | number | null;
+    deadline_delta_days: number | null;
+    price_explanation: string;
+    decision: { outcome: string; rejection_comment: string | null; decided_at: string } | null;
+  }[];
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const { user } = Astro.locals;
+const offerId = Astro.params.offerId ?? "";
+const showReplacementToast = Astro.url.searchParams.get("notice") === "revision-replaced";
+const supabase = createClient(Astro.request.headers, Astro.cookies);
+let offer: OfferRecord | null = null;
+let items: OfferItemRecord[] = [];
+let offerRevisions: OfferRevisionRecord[] = [];
+let hasChanges = false;
+let activeItems: OfferItemRecord[] = [];
+let pendingChangeId: string | null = null;
+let activeAmount = 0n;
+let activeDeadline = "";
+let currentOffer: CurrentOfferRecord | null = null;
+let changeTemplates: OfferChangeTemplate[] = [...STARTER_OFFER_CHANGE_TEMPLATES];
+let loadError = false;
+
+if (supabase && user && UUID_PATTERN.test(offerId)) {
+  const { data, error } = await supabase
+    .from("offers")
+    .select(
+      "id, base_scope, base_amount_minor, base_deadline, currency_code, status, items_revision, active_scope_revision, base_revision",
+    )
+    .eq("id", offerId)
+    .eq("contractor_id", user.id)
+    .maybeSingle();
+  loadError = Boolean(error);
+  offer = data;
+  if (offer) {
+    const [itemsResult, revisionsResult, currentResult, effectiveItemsResult, templatesResult] = await Promise.all([
+      supabase
+        .from("offer_items")
+        .select("id, name, quantity, unit, specification, selling_rate_minor, labor_hours_per_unit, line_amount_minor")
+        .eq("offer_id", offer.id)
+        .eq("contractor_id", user.id)
+        .order("position", { ascending: true }),
+      supabase
+        .from("offer_revisions")
+        .select(
+          "id, revision, base_scope, base_amount_minor, base_deadline, items, status, created_at, decided_at, rejection_comment",
+        )
+        .eq("offer_id", offer.id)
+        .eq("contractor_id", user.id)
+        .order("revision", { ascending: false }),
+      supabase.rpc("get_contractor_offer_current", { p_offer_id: offer.id }),
+      supabase.rpc("get_effective_offer_items", { p_offer_id: offer.id }),
+      supabase
+        .from("offer_change_templates")
+        .select(
+          "id, version, trade, name, unit, prompts, selling_rate_minor, labor_hours_per_unit, companion_operations",
+        )
+        .eq("contractor_id", user.id)
+        .order("name", { ascending: true }),
+    ]);
+    loadError =
+      itemsResult.error !== null ||
+      revisionsResult.error !== null ||
+      currentResult.error !== null ||
+      effectiveItemsResult.error !== null ||
+      templatesResult.error !== null;
+    items = itemsResult.data ?? [];
+    offerRevisions = revisionsResult.data ?? [];
+    currentOffer = currentResult.data as CurrentOfferRecord | null;
+    activeItems = (effectiveItemsResult.data ?? []) as OfferItemRecord[];
+    const rawTemplates: unknown = templatesResult.data;
+    const savedTemplates = Array.isArray(rawTemplates)
+      ? (
+          rawTemplates as {
+            id: string;
+            version: number;
+            trade: OfferChangeTemplate["trade"];
+            name: string;
+            unit: OfferChangeTemplate["unit"];
+            prompts: string[];
+            selling_rate_minor: number | string | null;
+            labor_hours_per_unit: number | string | null;
+            companion_operations: OfferChangeTemplate["companionOperations"];
+          }[]
+        ).map((template) => ({
+          id: template.id,
+          version: template.version,
+          contractorId: user.id,
+          trade: template.trade,
+          name: template.name,
+          unit: template.unit,
+          prompts: template.prompts,
+          sellingRateMinor: template.selling_rate_minor === null ? null : String(template.selling_rate_minor),
+          laborHoursPerUnit: template.labor_hours_per_unit === null ? null : String(template.labor_hours_per_unit),
+          companionOperations: template.companion_operations,
+        }))
+      : [];
+    changeTemplates = [...STARTER_OFFER_CHANGE_TEMPLATES, ...savedTemplates];
+    const changeRows = currentOffer?.changes ?? [];
+    hasChanges = changeRows.length > 0;
+    pendingChangeId = changeRows.find((change) => change.status === "pending")?.id ?? null;
+    if (currentOffer) {
+      activeAmount = BigInt(currentOffer.active_amount_minor);
+      activeDeadline = currentOffer.active_deadline;
+    }
+  }
+}
+
+if (!offer || loadError) Astro.response.status = 404;
+const canEdit = offer?.status === "pending" && !hasChanges && !loadError;
+const baseTotal = offer ? BigInt(offer.base_amount_minor) : 0n;
+const formatDate = (date: string) =>
+  new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`));
+const lockReason = hasChanges
+  ? "The original items are locked because this offer has change history."
+  : "The original items can only be edited while the offer is pending.";
+---
+
+<Layout title="Offer details · ScopeGuard">
+  <div class="min-h-screen bg-background">
+    <header class="border-b bg-background">
+      <div class="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
+        <a
+          href="/dashboard"
+          class="text-lg font-semibold tracking-tight focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
+        >
+          ScopeGuard
+        </a>
+        <AccountMenu client:load email={user?.email ?? "Account"} />
+      </div>
+    </header>
+    <ContractorNavigation current="offers" />
+    <main class="mx-auto max-w-4xl px-4 py-8 sm:px-6 sm:py-12">
+      <a
+        href="/offers"
+        class="text-primary text-sm underline underline-offset-4 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      >
+        ← Back to offers
+      </a>
+      {!offer || loadError ? (
+        <section class="bg-card mt-6 rounded-xl border p-6" aria-labelledby="offer-unavailable-title">
+          <h1 id="offer-unavailable-title" class="text-xl font-semibold">
+            Offer unavailable
+          </h1>
+          <p class="text-muted-foreground mt-2">
+            This offer could not be loaded. It may not exist or may no longer be accessible.
+          </p>
+        </section>
+      ) : (
+        <>
+          <div class="mb-7 mt-5 flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p class="text-muted-foreground text-sm font-medium">Contractor workspace</p>
+              <h1 class="mt-1 text-3xl font-semibold tracking-tight">Offer details</h1>
+              <p class="text-muted-foreground mt-2">Review the saved scope and its itemized price.</p>
+            </div>
+            <span class="bg-secondary rounded-full px-3 py-1 text-sm font-medium capitalize">{offer.status}</span>
+          </div>
+
+          <section class="bg-card space-y-5 rounded-xl border p-5 sm:p-6" aria-labelledby="offer-summary-title">
+            <h2 id="offer-summary-title" class="text-lg font-semibold">
+              Current base offer
+            </h2>
+            <dl class="grid gap-4 sm:grid-cols-2">
+              <div>
+                <dt class="text-muted-foreground text-sm">Base total</dt>
+                <dd class="mt-1 text-lg font-semibold">{formatMinorAmount(baseTotal)}</dd>
+              </div>
+              <div>
+                <dt class="text-muted-foreground text-sm">Deadline</dt>
+                <dd class="mt-1 font-semibold">{formatDate(offer.base_deadline)}</dd>
+              </div>
+            </dl>
+            <div>
+              <h3 class="text-sm font-medium">Contextual description</h3>
+              <p class="text-muted-foreground mt-2 whitespace-pre-wrap text-sm">{offer.base_scope}</p>
+            </div>
+            <div class="border-t pt-5">
+              <h3 class="mb-3 text-base font-semibold">Priced work items</h3>
+              <div class="overflow-x-auto">
+                <table class="w-full min-w-[36rem] text-left text-sm">
+                  <thead>
+                    <tr class="border-b text-muted-foreground">
+                      <th scope="col" class="py-2 pr-3 font-medium">
+                        Item
+                      </th>
+                      <th scope="col" class="py-2 pr-3 font-medium">
+                        Quantity
+                      </th>
+                      <th scope="col" class="py-2 pr-3 font-medium">
+                        Rate
+                      </th>
+                      <th scope="col" class="py-2 pr-3 font-medium">
+                        Line amount
+                      </th>
+                      <th scope="col" class="py-2 font-medium">
+                        Labor hours/unit (private)
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y">
+                    {items.map((item) => (
+                      <tr data-offer-item-id={item.id} data-line-amount-minor={item.line_amount_minor}>
+                        <th scope="row" class="py-3 pr-3 align-top font-medium">
+                          {item.name}
+                          <p class="text-muted-foreground mt-1 max-w-sm whitespace-pre-wrap font-normal">
+                            {item.specification}
+                          </p>
+                        </th>
+                        <td class="py-3 pr-3 align-top">
+                          {item.quantity} {item.unit}
+                        </td>
+                        <td class="py-3 pr-3 align-top">{formatMinorAmount(BigInt(item.selling_rate_minor))}</td>
+                        <td class="py-3 pr-3 align-top font-medium">
+                          {formatMinorAmount(BigInt(item.line_amount_minor))}
+                        </td>
+                        <td class="py-3 align-top">{item.labor_hours_per_unit}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div
+                class="mt-4 flex justify-end border-t pt-4 text-base font-semibold"
+                data-offer-total-minor={baseTotal.toString()}
+              >
+                Total: {formatMinorAmount(baseTotal)}
+              </div>
+            </div>
+          </section>
+          <section class="bg-card mt-6 space-y-4 rounded-xl border p-5 sm:p-6" aria-labelledby="offer-revisions-title">
+            <div>
+              <h2 id="offer-revisions-title" class="text-lg font-semibold">
+                Offer version history
+              </h2>
+              <p class="text-muted-foreground mt-1 text-sm">
+                Each version keeps the scope and price presented to the customer at that time.
+              </p>
+            </div>
+            <ol class="space-y-3">
+              {offerRevisions.map((revision) => (
+                <li>
+                  <details
+                    class="rounded-md border p-4"
+                    open={revision.revision === offer.base_revision}
+                    data-offer-revision={revision.revision}
+                    data-revision-status={revision.status}
+                    data-revision-amount-minor={revision.base_amount_minor}
+                  >
+                    <summary class="cursor-pointer text-sm font-semibold">
+                      Version {revision.revision} · {revision.status} ·{" "}
+                      {formatMinorAmount(BigInt(revision.base_amount_minor))} · {formatDate(revision.base_deadline)}
+                    </summary>
+                    <div class="mt-4 space-y-4 border-t pt-4 text-sm">
+                      <p class="text-muted-foreground">
+                        Saved {formatDate(revision.created_at.slice(0, 10))}
+                        {revision.decided_at
+                          ? ` · Customer decision ${formatDate(revision.decided_at.slice(0, 10))}`
+                          : ""}
+                      </p>
+                      {revision.rejection_comment ? (
+                        <p class="text-muted-foreground">Rejection reason: {revision.rejection_comment}</p>
+                      ) : null}
+                      <div>
+                        <h3 class="font-medium">Scope description</h3>
+                        <p class="text-muted-foreground mt-1 whitespace-pre-wrap">{revision.base_scope}</p>
+                      </div>
+                      <div>
+                        <h3 class="font-medium">Priced work items</h3>
+                        <ul class="mt-2 divide-y border-t">
+                          {revision.items.map((item) => (
+                            <li class="flex flex-wrap justify-between gap-2 py-2" data-revision-item-id={item.id}>
+                              <span>
+                                {item.name} · {item.quantity} {item.unit}
+                                {item.specification ? ` · ${item.specification}` : ""}
+                                <span class="text-muted-foreground mt-1 block">
+                                  Rate {formatMinorAmount(BigInt(item.selling_rate_minor))}/{item.unit} · Private effort{" "}
+                                  {item.labor_hours_per_unit} h/{item.unit}
+                                </span>
+                              </span>
+                              <span>{formatMinorAmount(BigInt(item.line_amount_minor))}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <p class="font-semibold">
+                        Version total: {formatMinorAmount(BigInt(revision.base_amount_minor))}
+                      </p>
+                      <p>Version deadline: {formatDate(revision.base_deadline)}</p>
+                    </div>
+                  </details>
+                </li>
+              ))}
+            </ol>
+          </section>
+          {!["pending", "rejected"].includes(offer.status) ? (
+            <section class="bg-card mt-6 space-y-4 rounded-xl border p-5 sm:p-6" aria-labelledby="current-scope-title">
+              <h2 id="current-scope-title" class="text-lg font-semibold">
+                Current agreed work
+              </h2>
+              <dl class="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <dt class="text-muted-foreground text-sm">Current total</dt>
+                  <dd class="mt-1 text-lg font-semibold">{formatMinorAmount(activeAmount)}</dd>
+                </div>
+                <div>
+                  <dt class="text-muted-foreground text-sm">Current target date</dt>
+                  <dd class="mt-1 font-semibold">{formatDate(activeDeadline)}</dd>
+                </div>
+              </dl>
+              <ul class="divide-y border-t">
+                {currentOffer?.active_scope.items.map((item) => (
+                  <li class="flex flex-wrap justify-between gap-2 py-3 text-sm" data-current-item-id={item.id}>
+                    <span>
+                      {item.name} · {item.quantity} {item.unit} · {item.specification}
+                    </span>
+                    <span>{formatMinorAmount(BigInt(item.line_amount_minor))}</span>
+                  </li>
+                ))}
+              </ul>
+              <div data-current-amount-minor={activeAmount.toString()} data-current-deadline={activeDeadline}>
+                <h3 class="text-sm font-semibold">Change history and price explanation</h3>
+                <ol class="mt-2 space-y-3">
+                  {currentOffer?.changes.map((change) => (
+                    <li class="rounded-md border p-3 text-sm">
+                      <p class="font-medium">
+                        {change.description} · {change.status}
+                      </p>
+                      <p class="text-muted-foreground mt-1">{change.price_explanation}</p>
+                      <p class="mt-1">
+                        Price {formatMinorAmount(BigInt(change.price_delta_minor ?? 0))} · Deadline{" "}
+                        {change.deadline_delta_days ?? 0} days
+                      </p>
+                      {change.decision ? (
+                        <p class="text-muted-foreground mt-1">
+                          Customer {change.decision.outcome} on {formatDate(change.decision.decided_at.slice(0, 10))}
+                          {change.decision.rejection_comment ? `: ${change.decision.rejection_comment}` : ""}
+                        </p>
+                      ) : null}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </section>
+          ) : null}
+
+          <section class="bg-card mt-6 rounded-xl border p-5 sm:p-6" aria-labelledby="item-corrections-title">
+            <h2 id="item-corrections-title" class="mb-4 text-lg font-semibold">
+              Revise pending offer items
+            </h2>
+            {canEdit ? (
+              <EditOfferItemsForm
+                client:load
+                offerId={offer.id}
+                revision={offer.items_revision}
+                initialItems={items.map(draftFromOfferItem)}
+              />
+            ) : (
+              <p class="text-muted-foreground rounded-md bg-secondary px-4 py-3 text-sm" role="status">
+                {lockReason}
+              </p>
+            )}
+          </section>
+          {offer.status === "pending" ? (
+            <section class="bg-card mt-6 space-y-4 rounded-xl border p-5 sm:p-6" aria-labelledby="replace-offer-title">
+              <h2 id="replace-offer-title" class="text-lg font-semibold">
+                Replace pending offer
+              </h2>
+              <ReplacePendingOfferForm
+                client:load
+                offerId={offer.id}
+                revision={offer.base_revision}
+                initialScope={offer.base_scope}
+                initialDeadline={offer.base_deadline}
+                initialItems={items.map(draftFromOfferItem)}
+                showSuccessToast={showReplacementToast}
+              />
+            </section>
+          ) : ["accepted", "agreed"].includes(offer.status) ? (
+            <section class="bg-card mt-6 space-y-4 rounded-xl border p-5 sm:p-6" aria-labelledby="record-change-title">
+              <h2 id="record-change-title" class="text-lg font-semibold">
+                Record a change
+              </h2>
+              <p class="text-muted-foreground text-sm">
+                Estimate against the currently agreed work. The customer must approve changes to price or deadline.
+              </p>
+              <OfferChangeForm
+                client:load
+                offerId={offer.id}
+                scopeRevision={offer.active_scope_revision}
+                items={activeItems}
+                activeDeadline={activeDeadline}
+                pendingProposalId={pendingChangeId}
+                templates={changeTemplates}
+              />
+            </section>
+          ) : null}
+        </>
+      )}
+    </main>
+  </div>
+</Layout>
