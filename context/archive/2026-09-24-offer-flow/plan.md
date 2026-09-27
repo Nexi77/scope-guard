@@ -382,79 +382,79 @@ Add migrations rather than editing applied migrations. Preserve existing cursor 
 
 #### Automated
 
-- [x] 1.1 `npm run lint` passes for the loader, API, migration-adjacent code, and smoke changes. — 2f4e6b5
-- [x] 1.2 `npm run build` passes with the shared loader. — 2f4e6b5
-- [x] 1.3 `npm run offer-contract` passes against local Supabase after the migration is applied. — 2f4e6b5
-- [x] 1.4 `npm run smoke` passes against the local stack, including replacement success and history-locked failure. — 2f4e6b5
+- [x] 1.1 `npm run lint` passes for the loader, API, migration-adjacent code, and smoke changes. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
+- [x] 1.2 `npm run build` passes with the shared loader. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
+- [x] 1.3 `npm run offer-contract` passes against local Supabase after the migration is applied. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
+- [x] 1.4 `npm run smoke` passes against the local stack, including replacement success and history-locked failure. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
 
 #### Manual
 
-- [x] 1.5 Before-view desktop and mobile screenshots of detail, creation, and list are captured with viewport and state notes, without secrets or PIN values. — 2f4e6b5
-- [x] 1.6 An owner can still view an offer; a foreign or nonexistent offer uses the neutral unavailable state. — 2f4e6b5
+- [x] 1.5 Before-view desktop and mobile screenshots of detail, creation, and list are captured with viewport and state notes, without secrets or PIN values. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
+- [x] 1.6 An owner can still view an offer; a foreign or nonexistent offer uses the neutral unavailable state. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
 
 ### Phase 2: Current State and History
 
 #### Automated
 
-- [x] 2.1 `npm run lint` passes for the overview, history, and shared navigation. — 4729a6f
-- [x] 2.2 `npm run build` passes for both detail routes. — 4729a6f
-- [x] 2.3 `npm run smoke` passes with current-state and history route assertions. — 4729a6f
+- [x] 2.1 `npm run lint` passes for the overview, history, and shared navigation. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
+- [x] 2.2 `npm run build` passes for both detail routes. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
+- [x] 2.3 `npm run smoke` passes with current-state and history route assertions. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
 
 #### Manual
 
-- [x] 2.4 Desktop and mobile overview/history show the right amount, deadline, and actions in pending, agreed, rejected, and pending-change states. — 4729a6f
-- [x] 2.5 Keyboard focus reaches Current state, History, PIN controls, and expandable history details; empty and unavailable states are understandable. — 4729a6f
+- [x] 2.4 Desktop and mobile overview/history show the right amount, deadline, and actions in pending, agreed, rejected, and pending-change states. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
+- [x] 2.5 Keyboard focus reaches Current state, History, PIN controls, and expandable history details; empty and unavailable states are understandable. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
 
 ### Phase 3: Dedicated Change and Edit Tasks
 
 #### Automated
 
-- [x] 3.1 `npm run lint` passes for the task pages and form integration. — 46a09f7
-- [x] 3.2 `npm run build` passes for the new routes. — 46a09f7
-- [x] 3.3 `npm run smoke` passes with direct-route and endpoint success/failure checks. — 46a09f7
+- [x] 3.1 `npm run lint` passes for the task pages and form integration. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
+- [x] 3.2 `npm run build` passes for the new routes. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
+- [x] 3.3 `npm run smoke` passes with direct-route and endpoint success/failure checks. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
 
 #### Manual
 
-- [x] 3.4 Eligible edit and change pages work from links and bookmarks; ineligible direct URLs do not expose forms. — 46a09f7
-- [x] 3.5 Preview, pending-proposal replacement confirmation, validation errors, disabled/busy states, and successful navigation remain usable on desktop and mobile. — 46a09f7
+- [x] 3.4 Eligible edit and change pages work from links and bookmarks; ineligible direct URLs do not expose forms. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
+- [x] 3.5 Preview, pending-proposal replacement confirmation, validation errors, disabled/busy states, and successful navigation remain usable on desktop and mobile. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
 
 ### Phase 4: Creation Form and Item Cards
 
 #### Automated
 
-- [x] 4.1 `npm run lint` passes for the form and shared field/editor changes. — 75a5b09
-- [x] 4.2 `npm run build` passes for `/offers/new`. — 75a5b09
-- [x] 4.3 `npm run smoke` passes for valid and invalid offer creation, including item totals and customer selection. — 75a5b09
+- [x] 4.1 `npm run lint` passes for the form and shared field/editor changes. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
+- [x] 4.2 `npm run build` passes for `/offers/new`. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
+- [x] 4.3 `npm run smoke` passes for valid and invalid offer creation, including item totals and customer selection. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
 
 #### Manual
 
-- [x] 4.4 On desktop and mobile, a new item appears at the top with focus, stable entered values, a local template selector, and an accurate summary total. — 75a5b09
-- [x] 4.5 Overwrite confirmation, required markers, screen-reader labels, focus after invalid submit, and saved success state work with keyboard navigation. — 75a5b09
+- [x] 4.4 On desktop and mobile, a new item appears at the top with focus, stable entered values, a local template selector, and an accurate summary total. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
+- [x] 4.5 Overwrite confirmation, required markers, screen-reader labels, focus after invalid submit, and saved success state work with keyboard navigation. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
 
 ### Phase 5: Count-Aware Customer and Offer Pages
 
 #### Automated
 
-- [x] 5.1 `npm run lint` passes for the new query callers and contract checks. — 2cf0338
-- [x] 5.2 `npm run build` passes with the numbered-page route data. — 2cf0338
-- [x] 5.3 `npm run offer-contract` passes for owner-scoped counts, active amounts, and deterministic pages. — 2cf0338
-- [x] 5.4 `npm run smoke` passes for search and customer/offer page navigation. — 2cf0338
+- [x] 5.1 `npm run lint` passes for the new query callers and contract checks. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
+- [x] 5.2 `npm run build` passes with the numbered-page route data. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
+- [x] 5.3 `npm run offer-contract` passes for owner-scoped counts, active amounts, and deterministic pages. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
+- [x] 5.4 `npm run smoke` passes for search and customer/offer page navigation. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
 
 #### Manual
 
-- [x] 5.5 Search, customer choice, and both paginations survive refresh and back/forward navigation without losing or crossing customer data. — 2cf0338
+- [x] 5.5 Search, customer choice, and both paginations survive refresh and back/forward navigation without losing or crossing customer data. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
 
 ### Phase 6: Grouped Offers Table and Visual Review
 
 #### Automated
 
-- [x] 6.1 `npm run lint` passes for the complete offer-flow change. — dc02ae8
-- [x] 6.2 `npm run build` passes for all affected routes. — dc02ae8
-- [x] 6.3 `npm run offer-contract` passes against local Supabase. — dc02ae8
-- [x] 6.4 `npm run smoke` passes against the local stack, including list actions and offer state regressions. — dc02ae8
+- [x] 6.1 `npm run lint` passes for the complete offer-flow change. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
+- [x] 6.2 `npm run build` passes for all affected routes. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
+- [x] 6.3 `npm run offer-contract` passes against local Supabase. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
+- [x] 6.4 `npm run smoke` passes against the local stack, including list actions and offer state regressions. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
 
 #### Manual
 
 - [x] 6.5 Desktop and mobile after screenshots show readable grouped rows, creation cards, overview, history, and task pages compared with the same before-state data.
-- [x] 6.6 Hover, focus, disabled, error, empty, loading, and keyboard states are checked on the three views; no horizontal mobile table scroll or PIN value appears in list rows. — dc02ae8
-- [x] 6.7 Pending, accepted/agreed, rejected, and pending-change paths preserve their eligible actions and active-scope values end to end. — dc02ae8
+- [x] 6.6 Hover, focus, disabled, error, empty, loading, and keyboard states are checked on the three views; no horizontal mobile table scroll or PIN value appears in list rows. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4
+- [x] 6.7 Pending, accepted/agreed, rejected, and pending-change paths preserve their eligible actions and active-scope values end to end. — e56366419206b4794dda2d16f1f7b35bb4c1c8d4

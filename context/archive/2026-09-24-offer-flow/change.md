@@ -1,10 +1,10 @@
 ---
 change_id: offer-flow
 title: Czytelny przepływ ofert
-status: implemented
+status: archived
 created: 2026-09-24
 updated: 2026-09-27
-archived_at: null
+archived_at: 2026-09-27T21:21:44Z
 ---
 
 ## Notes
