@@ -7,10 +7,14 @@ import { createClient } from "@supabase/supabase-js";
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:4321";
 const supabaseUrl = process.env.API_URL ?? process.env.SUPABASE_URL;
 const supabaseAnonKey = process.env.ANON_KEY ?? process.env.SUPABASE_KEY;
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error("Smoke test requires the local Supabase API_URL and ANON_KEY.");
+const supabaseServiceKey = process.env.SECRET_KEY ?? process.env.SERVICE_ROLE_KEY;
+if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceKey) {
+  throw new Error("Smoke test requires the local Supabase API_URL, ANON_KEY, and SECRET_KEY.");
 }
 const sharedClient = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: { autoRefreshToken: false, persistSession: false },
+});
+const admin = createClient(supabaseUrl, supabaseServiceKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 const email = `smoke-${Date.now()}@example.com`;
@@ -66,6 +70,8 @@ function unwrapAstroProp(value) {
 }
 
 function customerIdFromPage(body, name) {
+  const markedCustomer = body.match(/data-customer-id="([0-9a-f-]{36})"/i);
+  if (markedCustomer) return markedCustomer[1];
   const islands = body.matchAll(/<astro-island\b[^>]*\bprops=(?:"([^"]*)"|'([^']*)')/g);
   for (const [, doubleQuoted, singleQuoted] of islands) {
     const encodedProps = doubleQuoted ?? singleQuoted;
@@ -96,6 +102,12 @@ function customerIdFromPage(body, name) {
   return null;
 }
 
+function customerPagerFromPage(body) {
+  return (
+    body.match(/<nav\b(?=[^>]*aria-label="Customer pages (?:before|after) list")[^>]*>([\s\S]*?)<\/nav>/i)?.[1] ?? ""
+  );
+}
+
 function offerIdFromPage(body) {
   const markedOffer = body.match(/data-offer-id="([0-9a-f-]{36})"/i);
   if (markedOffer) return markedOffer[1];
@@ -122,6 +134,10 @@ function offerIdFromPage(body) {
     }
   }
   return null;
+}
+
+function offerRowAttributes(body, id) {
+  return body.match(new RegExp(`<tr\\b[^>]*data-offer-id="${id}"[^>]*>`, "i"))?.[0] ?? "";
 }
 
 function today() {
@@ -187,6 +203,12 @@ const foreignScope = "Foreign contractor private scope";
 let createdCustomerId = null;
 let reusedCustomerId = null;
 let reusedOfferId = null;
+let reusedItemIds = [];
+let historyLockedOfferId = null;
+let rejectedOfferId = null;
+let publishedChangeId = null;
+let reusedOfferPin = null;
+let reusedShareToken = null;
 let publishableChange = null;
 let foreignCustomerId = null;
 let offerId = null;
@@ -229,11 +251,26 @@ const steps = [
   ["dashboard renders for signed-in user", () => request("/dashboard"), { status: 200 }],
   ["offer browser renders signed-in empty state", () => request("/offers"), { status: 200, body: "No customers yet" }],
   [
-    "offer creation form renders trade template selection for signed-in user",
+    "offer creation form renders ordered sections, required fields, and item-local templates",
     () => request("/offers/new"),
     {
       status: 200,
-      body: ["Choose a template (optional)", "Start work items from a trade template", "Starter prompts"],
+      body: [
+        "Customer",
+        "Scope and deadline",
+        "Original scope",
+        "Deadline",
+        "Work items",
+        "Template for item 1",
+        "Choose a template (optional)",
+        "Starter prompts",
+        "Calculated offer total",
+        "The total will appear once every work item is complete.",
+        "Create offer",
+        'aria-required="true"',
+        "data-template-select",
+      ],
+      absentBody: ["Start work items from a trade template"],
     },
   ],
   [
@@ -310,8 +347,19 @@ const steps = [
     {
       status: 200,
       locationPattern: /^\/offers\/[0-9a-f-]{36}$/i,
-      body: ["Offer details", "Smoke-tested original scope"],
+      body: ["Current offer", "Offer awaiting acceptance", "Smoke-tested original scope"],
       check: () => Boolean(createdCustomerId && offerId),
+    },
+  ],
+  [
+    "offer creation success state links to the saved offer and customer offers",
+    () =>
+      request(
+        `/offers/new?created=1&offer=${encodeURIComponent(offerId)}&customer=${encodeURIComponent(createdCustomerId)}`,
+      ),
+    {
+      status: 200,
+      body: ["Offer created", "Review this offer", "View this customer’s offers", "Create another offer"],
     },
   ],
   [
@@ -405,18 +453,46 @@ const steps = [
     { status: 401, body: "Sign in to edit this offer" },
   ],
   [
-    "new-customer offer group renders scope, status, current price, and deadline",
+    "expanded customer group renders an eligible pending offer without PIN controls",
     () => request(`/offers?customer=${createdCustomerId}`),
-    { status: 200, body: [customerName, "Smoke-tested original scope", "pending", "1", today()] },
+    {
+      status: 200,
+      body: [customerName, "Smoke-tested original scope", "pending", "1", today(), 'aria-expanded="true"'],
+      check: (actual) =>
+        /<h2[^>]*id="offer-list-title"[^>]*tabindex="-1"/.test(actual.body) &&
+        offerRowAttributes(actual.body, offerId).includes('data-can-edit="true"') &&
+        offerRowAttributes(actual.body, offerId).includes('data-can-propose-change="false"') &&
+        actual.body.includes(`/offers/${offerId}`),
+      absentBody: ["Manage PIN", "Generate PIN"],
+    },
   ],
   [
-    "offer card exposes configured PIN state without secrets",
+    "offer search and malformed page parameters resolve to the first matching page",
+    () =>
+      request(
+        `/offers?q=${encodeURIComponent(customerName)}&page=999&customer=${encodeURIComponent(createdCustomerId)}&offerPage=invalid`,
+      ),
+    {
+      status: 200,
+      body: [customerName, "Page 1 of 1", "Showing 1–1 of 1 customers", "Showing 1–1 of 1 offers"],
+      check: (actual) => {
+        const customerPager = customerPagerFromPage(actual.body);
+        return (
+          customerIdFromPage(actual.body, customerName) === createdCustomerId &&
+          customerPager.includes("Page 1 of 1") &&
+          !customerPager.includes("Next customers")
+        );
+      },
+    },
+  ],
+  [
+    "offer detail exposes PIN state without secrets",
     async () => {
       const page = await request(`/offers?customer=${createdCustomerId}`);
       offerId = offerIdFromPage(page.body);
-      return { ...page, body: `${page.body}${page.body.includes("Not configured") ? "Not configured" : ""}` };
+      return request(`/offers/${offerId}`);
     },
-    { status: 200, body: "Not configured", check: () => Boolean(offerId) },
+    { status: 200, body: ["Customer access", "Not configured"], check: () => Boolean(offerId) },
   ],
   [
     "invalid offer ID is rejected without a candidate PIN",
@@ -456,7 +532,7 @@ const steps = [
   ],
   [
     "offer refresh shows configured state without rendering PIN or token",
-    () => request(`/offers?customer=${createdCustomerId}`),
+    () => request(`/offers/${offerId}`),
     {
       status: 200,
       body: "Configured",
@@ -512,6 +588,7 @@ const steps = [
       reusedCustomerId = customerId;
       reusedOfferId = offerIdFromLocation(created.location);
       const detail = await request(created.location);
+      reusedItemIds = itemIdsFromPage(detail.body);
       return { ...detail, location: created.location };
     },
     {
@@ -596,25 +673,126 @@ const steps = [
     { status: 404, body: "Offer is unavailable", absentBody: ["pin_hash", "share_token"] },
   ],
   [
+    "history route keeps foreign and unknown offers unavailable",
+    async () => {
+      const foreign = await request(`/offers/${foreignOfferId}/history`);
+      const unknown = await request(`/offers/00000000-0000-4000-8000-000000000000/history`);
+      return {
+        ...foreign,
+        body: `${foreign.body} unknown:${unknown.status}:${unknown.body.includes("Offer unavailable")}`,
+      };
+    },
+    { status: 404, body: ["Offer unavailable", "unknown:404:true"], absentBody: [foreignScope] },
+  ],
+  [
+    "anonymous history route redirects to sign in",
+    () => request(`/offers/${offerId}/history`, {}, new Map()),
+    { status: 302, location: "/auth/signin" },
+  ],
+  [
+    "rejected initial offer shows its decision and reason without an active-work claim",
+    async () => {
+      const creation = await request("/api/offers", {
+        method: "POST",
+        form: {
+          customer_id: reusedCustomerId,
+          base_scope: "Rejected initial smoke scope",
+          base_deadline: today(),
+          items_json: JSON.stringify(standardItems(700)),
+        },
+      });
+      rejectedOfferId = offerIdFromLocation(creation.location);
+      if (!rejectedOfferId) return { status: 0, body: "Could not create rejected fixture." };
+      const { error: offerError } = await admin.from("offers").update({ status: "rejected" }).eq("id", rejectedOfferId);
+      const { error: revisionError } = await admin
+        .from("offer_revisions")
+        .update({
+          status: "rejected",
+          decision_outcome: "rejected",
+          rejection_comment: "Customer declined the first offer",
+          decided_at: new Date().toISOString(),
+        })
+        .eq("offer_id", rejectedOfferId)
+        .eq("revision", 1);
+      if (offerError || revisionError) return { status: 0, body: "Could not mark rejected fixture." };
+      const detail = await request(`/offers/${rejectedOfferId}`);
+      const history = await request(`/offers/${rejectedOfferId}/history`);
+      return {
+        ...detail,
+        body: `${detail.body} history:${history.status}:${history.body.includes("Customer declined the first offer")}`,
+      };
+    },
+    {
+      status: 200,
+      body: ["Customer rejected this offer", "Customer declined the first offer", "history:200:true"],
+      absentBody: ["Current agreed work", "Record a change", 'aria-label="Offer actions"'],
+    },
+  ],
+  [
+    "pending offer edit route is available while change proposal route is unavailable",
+    async () => {
+      const detail = await request(`/offers/${reusedOfferId}`);
+      const edit = await request(`/offers/${reusedOfferId}/edit`);
+      const change = await request(`/offers/${reusedOfferId}/changes/new`);
+      return {
+        ...edit,
+        body: `${edit.body} overview-actions:${detail.body.includes('aria-label="Offer actions"')} change:${change.status}:${change.body.includes("Change proposal unavailable")}`,
+      };
+    },
+    {
+      status: 200,
+      body: ["Edit pending offer", "Replace the pending version", "overview-actions:true", "change:404:true"],
+      check: (actual) =>
+        actual.body.includes("Edit pending offer") && !actual.body.includes("Change proposal unavailable"),
+    },
+  ],
+  [
+    "task routes keep foreign, unknown, and anonymous offers unavailable",
+    async () => {
+      const foreign = await request(`/offers/${foreignOfferId}/edit`);
+      const unknown = await request("/offers/00000000-0000-4000-8000-000000000000/changes/new");
+      const anonymous = await request(`/offers/${reusedOfferId}/edit`, {}, new Map());
+      return {
+        ...foreign,
+        body: `${foreign.body} unknown:${unknown.status}:${unknown.body.includes("Change proposal unavailable")} anonymous:${anonymous.status}:${anonymous.location}`,
+      };
+    },
+    {
+      status: 404,
+      body: ["Offer editing unavailable", "unknown:404:true", "anonymous:302:/auth/signin"],
+      absentBody: [foreignScope],
+    },
+  ],
+  [
     "pending offer revision is recorded atomically",
-    () =>
-      request(`/api/offers/${reusedOfferId}/revision`, {
+    async () => {
+      const revision = await request(`/api/offers/${reusedOfferId}/revision`, {
         method: "POST",
         form: {
           expected_revision: "1",
           base_scope: "Revised smoke-tested scope",
           base_deadline: today(),
-          items_json: JSON.stringify(standardItems(300)),
+          items_json: JSON.stringify([{ ...standardItems(300)[0], id: reusedItemIds[0] }]),
         },
-      }),
-    { status: 200, body: '"revision":2' },
+      });
+      const detail = await request(`/offers/${reusedOfferId}?notice=revision-replaced`);
+      return {
+        ...revision,
+        body: `${revision.body} retained:${JSON.stringify(itemIdsFromPage(detail.body))} notice:${detail.body.includes("The pending offer was replaced")}`,
+      };
+    },
+    {
+      status: 200,
+      body: ['"revision":2', "notice:true"],
+      check: (actual) => actual.body.includes(`retained:${JSON.stringify(reusedItemIds)}`),
+    },
   ],
   [
     "offer version history retains both the superseded and current snapshots",
-    () => request(`/offers/${reusedOfferId}`),
+    () => request(`/offers/${reusedOfferId}/history`),
     {
       status: 200,
-      body: ["Offer version history", "Smoke-tested reused customer scope", "Revised smoke-tested scope"],
+      body: ["Offer history", "Smoke-tested reused customer scope", "Revised smoke-tested scope"],
       check: (actual) =>
         /data-offer-revision="1"[^>]*data-revision-status="superseded"[^>]*data-revision-amount-minor="250"/.test(
           actual.body,
@@ -665,6 +843,79 @@ const steps = [
         },
       }),
     { status: 409, body: "changed or was accepted" },
+  ],
+  [
+    "pending offer with recorded change history hides replacement and rejects direct revision",
+    async () => {
+      const creation = await request("/api/offers", {
+        method: "POST",
+        form: {
+          customer_id: reusedCustomerId,
+          base_scope: "History-locked smoke offer",
+          base_deadline: today(),
+          items_json: JSON.stringify(standardItems(500)),
+        },
+      });
+      historyLockedOfferId = offerIdFromLocation(creation.location);
+      if (!historyLockedOfferId) return { status: 0, body: "Could not create history-locked fixture." };
+      const { data: owner, error: ownerError } = await admin
+        .from("offers")
+        .select("contractor_id")
+        .eq("id", historyLockedOfferId)
+        .single();
+      if (ownerError) return { status: 0, body: "Could not read fixture owner." };
+      const { error: changeError } = await admin.from("offer_changes").insert({
+        contractor_id: owner.contractor_id,
+        offer_id: historyLockedOfferId,
+        description: "Recorded history lock",
+        price_delta_minor: 100,
+      });
+      if (changeError) return { status: 0, body: "Could not seed change history." };
+      const detail = await request(`/offers/${historyLockedOfferId}`);
+      const revision = await request(`/api/offers/${historyLockedOfferId}/revision`, {
+        method: "POST",
+        form: {
+          expected_revision: "1",
+          base_scope: "Must not replace",
+          base_deadline: today(),
+          items_json: JSON.stringify(standardItems(600)),
+        },
+      });
+      return {
+        ...revision,
+        body: `${revision.body} hidden:${!detail.body.includes('id="replace-offer-title"')}`,
+      };
+    },
+    { status: 409, body: ['"error"', "hidden:true"] },
+  ],
+  [
+    "foreign and anonymous revision requests remain unavailable",
+    async () => {
+      const form = {
+        expected_revision: "1",
+        base_scope: "Must not replace",
+        base_deadline: today(),
+        items_json: JSON.stringify(standardItems()),
+      };
+      const foreign = await request(`/api/offers/${foreignOfferId}/revision`, { method: "POST", form });
+      const anonymous = await request(
+        `/api/offers/${historyLockedOfferId}/revision`,
+        { method: "POST", form },
+        new Map(),
+      );
+      return { ...foreign, body: `${foreign.body} anonymous:${anonymous.status}` };
+    },
+    { status: 404, body: ["Offer is unavailable", "anonymous:401"] },
+  ],
+  [
+    "history-locked pending offer has no Edit row action",
+    () => request(`/offers?customer=${reusedCustomerId}`),
+    {
+      status: 200,
+      check: (actual) =>
+        offerRowAttributes(actual.body, historyLockedOfferId).includes('data-can-edit="false"') &&
+        offerRowAttributes(actual.body, historyLockedOfferId).includes('data-can-propose-change="false"'),
+    },
   ],
   [
     "change preview rejects malformed and oversized requests",
@@ -811,6 +1062,8 @@ const steps = [
       }
       if (pinResponse.status !== 200 || !/^\d{6}$/.test(pin))
         return { status: 0, body: "Could not generate a valid smoke offer PIN." };
+      reusedOfferPin = pin;
+      reusedShareToken = offer.share_token;
       const { data: shared, error: sharedError } = await sharedClient.rpc("get_shared_offer", {
         p_share_token: offer.share_token,
       });
@@ -853,6 +1106,49 @@ const steps = [
       return { status: 200, location: "", body: "Accepted current base revision and prepared its item effect." };
     },
     { status: 200, body: "Accepted current base revision" },
+  ],
+  [
+    "accepted overview shows effective values and history navigation",
+    () => request(`/offers/${reusedOfferId}`),
+    {
+      status: 200,
+      body: ["Current agreed work", "Current state", "History", 'data-current-amount-minor="300"'],
+      absentBody: ["Offer version history", "awaiting customer acceptance"],
+    },
+  ],
+  [
+    "accepted offer row offers History and Propose change but no Edit",
+    () => request(`/offers?customer=${reusedCustomerId}`),
+    {
+      status: 200,
+      check: (actual) =>
+        offerRowAttributes(actual.body, reusedOfferId).includes('data-can-edit="false"') &&
+        offerRowAttributes(actual.body, reusedOfferId).includes('data-can-propose-change="true"') &&
+        actual.body.includes(`/offers/${reusedOfferId}`),
+    },
+  ],
+  [
+    "accepted change task is directly available and linked from history",
+    async () => {
+      const change = await request(`/offers/${reusedOfferId}/changes/new`);
+      const history = await request(`/offers/${reusedOfferId}/history`);
+      const edit = await request(`/offers/${reusedOfferId}/edit`);
+      return {
+        ...change,
+        body: `${change.body} history-actions:${history.body.includes('aria-label="Offer actions"')} edit:${edit.status}:${edit.body.includes("Offer editing unavailable")}`,
+      };
+    },
+    {
+      status: 200,
+      body: [
+        "Propose a change",
+        "Current agreed scope",
+        "Affected agreed work",
+        "history-actions:true",
+        "edit:404:true",
+      ],
+      absentBody: ["Change proposal unavailable"],
+    },
   ],
   [
     "change publication rejects malformed effect details",
@@ -903,7 +1199,8 @@ const steps = [
       body: ['"success":true', '"priceDeltaMinor":"300"'],
       check: (actual) => {
         try {
-          return /^[0-9a-f-]{36}$/i.test(JSON.parse(actual.body).changeId);
+          publishedChangeId = JSON.parse(actual.body).changeId;
+          return /^[0-9a-f-]{36}$/i.test(publishedChangeId);
         } catch {
           return false;
         }
@@ -911,9 +1208,66 @@ const steps = [
     },
   ],
   [
+    "pending proposal links to history without changing the active amount",
+    async () => {
+      const detail = await request(`/offers/${reusedOfferId}`);
+      const history = await request(`/offers/${reusedOfferId}/history`);
+      return {
+        ...detail,
+        body: `${detail.body} history-anchor:${history.body.includes(`id="change-${publishedChangeId}"`)}`,
+        historyBody: history.body,
+      };
+    },
+    {
+      status: 200,
+      body: ["waiting for customer approval", 'data-current-amount-minor="300"', "history-anchor:true"],
+      check: (actual) => {
+        const events = [
+          ...actual.historyBody.matchAll(
+            /data-history-kind="[^"]+" data-history-at="([^"]+)" data-history-id="([^"]+)"/g,
+          ),
+        ].map((match) => ({ at: Date.parse(match[1]), id: match[2] }));
+        return (
+          actual.body.includes(`/history#change-${publishedChangeId}`) &&
+          events.length >= 3 &&
+          events.every(
+            (event, index) =>
+              index === 0 ||
+              events[index - 1].at < event.at ||
+              (events[index - 1].at === event.at && events[index - 1].id.localeCompare(event.id) <= 0),
+          )
+        );
+      },
+    },
+  ],
+  [
+    "rejected change stays in history and leaves the active amount unchanged",
+    async () => {
+      const { error } = await sharedClient.rpc("decide_shared_offer_change", {
+        p_share_token: reusedShareToken,
+        p_pin: reusedOfferPin,
+        p_offer_change_id: publishedChangeId,
+        p_outcome: "rejected",
+        p_rejection_comment: "Customer declined this change",
+      });
+      if (error) return { status: 0, body: "Could not reject the smoke proposal." };
+      const detail = await request(`/offers/${reusedOfferId}`);
+      const history = await request(`/offers/${reusedOfferId}/history`);
+      return {
+        ...detail,
+        body: `${detail.body} history-reason:${history.body.includes("Customer declined this change")}`,
+      };
+    },
+    {
+      status: 200,
+      body: ['data-current-amount-minor="300"', "history-reason:true"],
+      absentBody: ["waiting for customer approval"],
+    },
+  ],
+  [
     "invalid customer query shows a safe unavailable state",
     () => request("/offers?customer=invalid"),
-    { status: 200, body: "This customer could not be loaded" },
+    { status: 200, body: "Customer could not be loaded" },
   ],
   [
     "unknown customer query shows no customer data",

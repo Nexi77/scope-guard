@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -5,6 +6,7 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  EMPTY_OFFER_ITEM,
   calculateOfferItemLine,
   calculateOfferItemsTotal,
   formatMinorAmount,
@@ -13,6 +15,7 @@ import {
   type OfferItemField,
   type OfferItemValidationError,
 } from "@/lib/offer-items";
+import type { OfferChangeTemplate } from "@/lib/offer-change-templates";
 
 interface OfferItemsEditorProps {
   items: OfferItemDraft[];
@@ -20,17 +23,51 @@ interface OfferItemsEditorProps {
   error?: OfferItemValidationError | null;
   disabled?: boolean;
   singleItem?: boolean;
+  requiredFields?: boolean;
+  stableItemIds?: boolean;
+  templates?: OfferChangeTemplate[];
+  selectedTemplateIds?: Record<string, string>;
+  pendingTemplate?: { itemId: string; templateId: string } | null;
+  onTemplateSelect?: (itemId: string, templateId: string) => void;
+  onConfirmTemplate?: () => void;
+  onCancelTemplate?: () => void;
 }
 
-function OfferItemsEditor({ items, onChange, error, disabled = false, singleItem = false }: OfferItemsEditorProps) {
+function OfferItemsEditor({
+  items,
+  onChange,
+  error,
+  disabled = false,
+  singleItem = false,
+  requiredFields = false,
+  stableItemIds = false,
+  templates = [],
+  selectedTemplateIds = {},
+  pendingTemplate = null,
+  onTemplateSelect,
+  onConfirmTemplate,
+  onCancelTemplate,
+}: OfferItemsEditorProps) {
   const total = calculateOfferItemsTotal(items);
+  const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
+  const focusedItemId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!pendingFocusId || focusedItemId.current === pendingFocusId) return;
+    const item = document.querySelector<HTMLElement>(`[data-item-id="${pendingFocusId}"] [data-new-item-focus]`);
+    if (!item) return;
+    item.focus();
+    focusedItemId.current = pendingFocusId;
+  }, [items, pendingFocusId]);
 
   function updateItem(index: number, field: OfferItemField, value: string) {
     onChange(items.map((item, itemIndex) => (itemIndex === index ? { ...item, [field]: value } : item)));
   }
 
   function addItem() {
-    onChange([...items, { name: "", quantity: "", unit: "", specification: "", sellingRate: "", laborHours: "" }]);
+    const id = stableItemIds ? crypto.randomUUID() : undefined;
+    if (id) setPendingFocusId(id);
+    onChange([{ ...EMPTY_OFFER_ITEM, ...(id ? { id } : {}) }, ...items]);
   }
 
   function removeItem(index: number) {
@@ -65,13 +102,18 @@ function OfferItemsEditor({ items, onChange, error, disabled = false, singleItem
 
       <div className="space-y-4">
         {items.map((item, index) => {
+          const itemId = item.id;
           const fieldError = (field: OfferItemField) =>
             error?.itemIndex === index && error.field === field ? error.message : undefined;
           const lineAmount = calculateOfferItemLine(item);
+          const selectedTemplate = itemId
+            ? templates.find((template) => template.id === selectedTemplateIds[itemId])
+            : undefined;
 
           return (
             <fieldset
               key={item.id ?? `new-${index}`}
+              data-item-id={item.id}
               className="bg-background space-y-4 rounded-lg border p-4 sm:p-5"
               disabled={disabled}
             >
@@ -95,10 +137,84 @@ function OfferItemsEditor({ items, onChange, error, disabled = false, singleItem
                 ) : null}
               </div>
 
-              <Field id={`item-${index}-name`} label="Item name" error={fieldError("name")}>
+              {templates.length > 0 && itemId && onTemplateSelect ? (
+                <div className="space-y-2">
+                  <Field id={`item-${index}-template`} label={`Template for item ${index + 1}`}>
+                    {(controlProps) => (
+                      <select
+                        {...controlProps}
+                        data-template-select
+                        data-new-item-focus={index === 0 ? "true" : undefined}
+                        className="border-input bg-background h-10 w-full rounded-md border px-3 text-sm"
+                        value={selectedTemplateIds[itemId] ?? ""}
+                        disabled={disabled}
+                        onChange={(event) => {
+                          onTemplateSelect(itemId, event.target.value);
+                        }}
+                      >
+                        <option value="">Choose a template (optional)</option>
+                        <optgroup label="Starter prompts">
+                          {templates
+                            .filter((template) => template.contractorId === null)
+                            .map((template) => (
+                              <option key={template.id} value={template.id}>
+                                {template.trade} · {template.name}
+                              </option>
+                            ))}
+                        </optgroup>
+                        {templates.some((template) => template.contractorId !== null) ? (
+                          <optgroup label="My saved templates">
+                            {templates
+                              .filter((template) => template.contractorId !== null)
+                              .map((template) => (
+                                <option key={template.id} value={template.id}>
+                                  {template.trade} · {template.name}
+                                </option>
+                              ))}
+                          </optgroup>
+                        ) : null}
+                      </select>
+                    )}
+                  </Field>
+                  {selectedTemplate ? (
+                    <div className="bg-secondary space-y-1 rounded-md p-3 text-sm" role="status">
+                      {selectedTemplate.prompts.map((prompt) => (
+                        <p key={prompt}>{prompt}</p>
+                      ))}
+                      {selectedTemplate.sellingRateMinor === null || selectedTemplate.laborHoursPerUnit === null ? (
+                        <p>Enter or confirm the selling rate and person-hours before saving this offer.</p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {pendingTemplate?.itemId === itemId ? (
+                    <div
+                      className="border-primary/30 bg-primary/5 rounded-md border p-3"
+                      role="group"
+                      aria-label="Confirm template overwrite"
+                      aria-live="polite"
+                    >
+                      <p className="text-sm">
+                        This updates the name, unit, rate, and labor defaults. Existing quantity and specification stay
+                        as entered. Apply this template?
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button type="button" size="sm" onClick={onConfirmTemplate}>
+                          Apply template
+                        </Button>
+                        <Button type="button" size="sm" variant="outline" onClick={onCancelTemplate}>
+                          Keep current values
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <Field id={`item-${index}-name`} label="Item name" required={requiredFields} error={fieldError("name")}>
                 {(controlProps) => (
                   <Input
                     {...controlProps}
+                    data-new-item-focus={index === 0 && !templates.length ? "true" : undefined}
                     value={item.name}
                     maxLength={200}
                     onChange={(event) => {
@@ -111,7 +227,12 @@ function OfferItemsEditor({ items, onChange, error, disabled = false, singleItem
 
               <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
                 <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
-                  <Field id={`item-${index}-quantity`} label="Quantity" error={fieldError("quantity")}>
+                  <Field
+                    id={`item-${index}-quantity`}
+                    label="Quantity"
+                    required={requiredFields}
+                    error={fieldError("quantity")}
+                  >
                     {(controlProps) => (
                       <Input
                         {...controlProps}
@@ -124,7 +245,7 @@ function OfferItemsEditor({ items, onChange, error, disabled = false, singleItem
                       />
                     )}
                   </Field>
-                  <Field id={`item-${index}-unit`} label="Unit" error={fieldError("unit")}>
+                  <Field id={`item-${index}-unit`} label="Unit" required={requiredFields} error={fieldError("unit")}>
                     {(controlProps) => (
                       <select
                         {...controlProps}
@@ -146,7 +267,12 @@ function OfferItemsEditor({ items, onChange, error, disabled = false, singleItem
                 </div>
               </div>
 
-              <Field id={`item-${index}-specification`} label="Specification" error={fieldError("specification")}>
+              <Field
+                id={`item-${index}-specification`}
+                label="Specification"
+                required={requiredFields}
+                error={fieldError("specification")}
+              >
                 {(controlProps) => (
                   <Textarea
                     {...controlProps}
@@ -165,6 +291,7 @@ function OfferItemsEditor({ items, onChange, error, disabled = false, singleItem
                 <Field
                   id={`item-${index}-rate`}
                   label="Selling rate (PLN per unit)"
+                  required={requiredFields}
                   hint="Customer-facing final price per unit."
                   error={fieldError("sellingRate")}
                 >
@@ -183,6 +310,7 @@ function OfferItemsEditor({ items, onChange, error, disabled = false, singleItem
                 <Field
                   id={`item-${index}-labor`}
                   label="Labor hours per unit (contractor-only)"
+                  required={requiredFields}
                   hint="Private planning assumption. It is not shown to customers."
                   error={fieldError("laborHours")}
                 >
@@ -212,13 +340,20 @@ function OfferItemsEditor({ items, onChange, error, disabled = false, singleItem
       </div>
 
       <div
-        className="bg-secondary flex flex-wrap items-center justify-between gap-2 rounded-lg px-4 py-3"
+        className={`border-border flex flex-col gap-1 rounded-lg border px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${
+          total === null ? "bg-muted/50" : "bg-secondary"
+        }`}
         aria-live="polite"
       >
-        <span className="font-medium">Calculated offer total</span>
-        <span className="text-lg font-semibold">
-          {total === null ? "Complete item details" : formatMinorAmount(total)}
-        </span>
+        <div>
+          <p className="text-sm font-medium">Calculated offer total</p>
+          {total === null ? (
+            <p className="text-muted-foreground mt-1 text-sm">
+              The total will appear once every work item is complete.
+            </p>
+          ) : null}
+        </div>
+        {total !== null ? <span className="text-xl font-semibold">{formatMinorAmount(total)}</span> : null}
       </div>
     </section>
   );

@@ -32,7 +32,7 @@ export default function ReplacePendingOfferForm({
 }) {
   const [scope, setScope] = useState(initialScope);
   const [deadline, setDeadline] = useState(initialDeadline);
-  const [items, setItems] = useState(initialItems.map(({ id: _id, ...item }) => item));
+  const [items, setItems] = useState(initialItems);
   const [error, setError] = useState("");
   const [itemError, setItemError] = useState<OfferItemValidationError | null>(null);
   const [saving, setSaving] = useState(false);

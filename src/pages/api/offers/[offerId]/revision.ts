@@ -61,7 +61,7 @@ export const POST: APIRoute = async (context) => {
   } catch {
     return json(400, { error: "Offer items are invalid JSON." });
   }
-  const items = parseOfferItemPayloads(rawItems);
+  const items = parseOfferItemPayloads(rawItems, true);
   if ("error" in items)
     return json(400, { error: items.error.message, fieldErrors: { items_json: items.error.message } });
   const revisionResult = await supabase.rpc("replace_pending_offer_revision", {
@@ -73,9 +73,11 @@ export const POST: APIRoute = async (context) => {
   });
   if (revisionResult.error) {
     if (
-      ["Offer revision changed; reload before editing", "Only an unaccepted offer can be revised"].includes(
-        revisionResult.error.message,
-      )
+      [
+        "Offer revision changed; reload before editing",
+        "Only an unaccepted offer can be revised",
+        "Offer change history prevents revision",
+      ].includes(revisionResult.error.message)
     )
       return json(409, {
         error: "This offer changed or was accepted while you were editing. Reload it before trying again.",

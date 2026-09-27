@@ -1,0 +1,91 @@
+---
+import { AccountMenu } from "@/components/dashboard/AccountMenu";
+import ContractorNavigation from "@/components/dashboard/ContractorNavigation.astro";
+import OfferChangeForm from "@/components/offers/OfferChangeForm";
+import OfferDetailNav from "@/components/offers/OfferDetailNav.astro";
+import Layout from "@/layouts/Layout.astro";
+import { loadContractorOfferView } from "@/lib/contractor-offer-view";
+import { formatMinorAmount } from "@/lib/offer-items";
+
+const { user } = Astro.locals;
+const result = await loadContractorOfferView(Astro.request.headers, Astro.cookies, user, Astro.params.offerId ?? "", {
+  current: true,
+  effectiveItems: true,
+  templates: true,
+});
+const view = result.kind === "ok" ? result.view : null;
+const canProposeChange = view?.canProposeChange === true;
+if (!canProposeChange) Astro.response.status = 404;
+const offer = canProposeChange ? view.offer : null;
+const currentOfferHref = `/offers/${encodeURIComponent(Astro.params.offerId ?? "")}`;
+const activeDeadline = canProposeChange ? (view.current?.active_deadline ?? view.offer.base_deadline) : "";
+---
+
+<Layout title="Propose an offer change · ScopeGuard">
+  <div class="min-h-screen bg-background">
+    <header class="border-b bg-background">
+      <div class="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
+        <a
+          href="/dashboard"
+          class="text-lg font-semibold tracking-tight focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
+        >
+          ScopeGuard
+        </a>
+        <AccountMenu client:load email={user?.email ?? "Account"} />
+      </div>
+    </header>
+    <ContractorNavigation current="offers" />
+    <main class="mx-auto max-w-4xl px-4 py-8 sm:px-6 sm:py-12">
+      <a class="text-primary text-sm underline underline-offset-4" href={currentOfferHref}>
+        ← Back to current offer
+      </a>
+      {!view || !offer ? (
+        <section class="bg-card mt-6 rounded-xl border p-6" aria-labelledby="task-unavailable-title">
+          <h1 id="task-unavailable-title" class="text-xl font-semibold">
+            Change proposal unavailable
+          </h1>
+          <p class="text-muted-foreground mt-2">
+            This offer cannot accept a change proposal or is no longer accessible.
+          </p>
+        </section>
+      ) : (
+        <>
+          <div class="mb-5 mt-5">
+            <p class="text-muted-foreground text-sm font-medium">Contractor workspace</p>
+            <h1 class="mt-1 text-3xl font-semibold tracking-tight">Propose a change</h1>
+            <p class="text-muted-foreground mt-2">
+              Estimate against agreed work. Price and deadline changes take effect only after customer approval.
+            </p>
+          </div>
+          <OfferDetailNav offerId={offer.id} current="overview" canProposeChange />
+          <section class="bg-card mb-6 rounded-xl border p-5 sm:p-6" aria-labelledby="active-scope-title">
+            <h2 id="active-scope-title" class="font-semibold">
+              Current agreed scope
+            </h2>
+            <dl class="mt-3 grid gap-3 sm:grid-cols-2">
+              <div>
+                <dt class="text-muted-foreground text-sm">Current total</dt>
+                <dd class="font-semibold">
+                  {formatMinorAmount(BigInt(view.current?.active_amount_minor ?? offer.base_amount_minor))}
+                </dd>
+              </div>
+              <div>
+                <dt class="text-muted-foreground text-sm">Current deadline</dt>
+                <dd class="font-semibold">{activeDeadline}</dd>
+              </div>
+            </dl>
+          </section>
+          <OfferChangeForm
+            client:load
+            offerId={offer.id}
+            scopeRevision={offer.active_scope_revision}
+            items={view.effectiveItems}
+            activeDeadline={activeDeadline}
+            pendingProposalId={view.pendingChangeId}
+            templates={view.templates}
+          />
+        </>
+      )}
+    </main>
+  </div>
+</Layout>

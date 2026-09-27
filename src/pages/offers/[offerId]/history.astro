@@ -1,0 +1,342 @@
+---
+import { AccountMenu } from "@/components/dashboard/AccountMenu";
+import ContractorNavigation from "@/components/dashboard/ContractorNavigation.astro";
+import OfferDetailNav from "@/components/offers/OfferDetailNav.astro";
+import Layout from "@/layouts/Layout.astro";
+import { loadContractorOfferView, type OfferChangeRecord, type OfferRevisionRecord } from "@/lib/contractor-offer-view";
+import { formatMinorAmount } from "@/lib/offer-items";
+
+const { user } = Astro.locals;
+const result = await loadContractorOfferView(Astro.request.headers, Astro.cookies, user, Astro.params.offerId ?? "", {
+  revisions: true,
+  changes: true,
+});
+const view = result.kind === "ok" ? result.view : null;
+if (!view) Astro.response.status = 404;
+const offer = view?.offer ?? null;
+type HistoryEvent =
+  | { kind: "revision"; at: string; id: string; revision: OfferRevisionRecord }
+  | { kind: "revision-decision"; at: string; id: string; revision: OfferRevisionRecord }
+  | { kind: "change"; at: string; id: string; change: OfferChangeRecord }
+  | { kind: "change-decision"; at: string; id: string; change: OfferChangeRecord };
+const events: HistoryEvent[] = [];
+for (const revision of view?.revisions ?? []) {
+  events.push({ kind: "revision", at: revision.created_at, id: revision.id, revision });
+  if (revision.decided_at)
+    events.push({ kind: "revision-decision", at: revision.decided_at, id: `${revision.id}:decision`, revision });
+}
+for (const change of view?.changes ?? []) {
+  events.push({ kind: "change", at: change.created_at, id: change.id, change });
+  if (change.decision)
+    events.push({ kind: "change-decision", at: change.decision.decided_at, id: `${change.id}:decision`, change });
+}
+events.sort((left, right) => Date.parse(left.at) - Date.parse(right.at) || left.id.localeCompare(right.id));
+const formatDateTime = (value: string) =>
+  new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(
+    new Date(value),
+  );
+const formatDate = (value: string) =>
+  new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`));
+const scalarText = (value: unknown, fallback = "") =>
+  typeof value === "string" || typeof value === "number" ? String(value) : fallback;
+const itemSnapshot = (value: unknown) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const item = value as Record<string, unknown>;
+  return {
+    name: typeof item.name === "string" ? item.name : "Work item",
+    quantity: scalarText(item.quantity),
+    unit: typeof item.unit === "string" ? item.unit : "",
+    specification: typeof item.specification === "string" ? item.specification : "",
+    rate: scalarText(item.selling_rate_minor, "0"),
+    labor: scalarText(item.labor_hours_per_unit),
+  };
+};
+const itemEffect = (value: unknown) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { before: null, after: null };
+  const effect = value as Record<string, unknown>;
+  return { before: itemSnapshot(effect.before), after: itemSnapshot(effect.after) };
+};
+const snapshotRecords = (value: unknown) =>
+  Array.isArray(value)
+    ? value.filter(
+        (entry): entry is Record<string, unknown> =>
+          entry !== null && typeof entry === "object" && !Array.isArray(entry),
+      )
+    : [];
+const formatSnapshotMinor = (value: unknown) => {
+  const amount = scalarText(value);
+  return /^-?\d+$/.test(amount) ? formatMinorAmount(BigInt(amount)) : null;
+};
+---
+
+<Layout title="Offer history · ScopeGuard">
+  <div class="min-h-screen bg-background">
+    <header class="border-b bg-background">
+      <div class="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
+        <a
+          href="/dashboard"
+          class="text-lg font-semibold tracking-tight focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+        >
+          ScopeGuard
+        </a>
+        <AccountMenu client:load email={user?.email ?? "Account"} />
+      </div>
+    </header>
+    <ContractorNavigation current="offers" />
+    <main class="mx-auto max-w-4xl px-4 py-8 sm:px-6 sm:py-12">
+      <a
+        href="/offers"
+        class="text-primary text-sm underline underline-offset-4 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      >
+        ← Back to offers
+      </a>
+      {!view || !offer ? (
+        <section class="bg-card mt-6 rounded-xl border p-6" aria-labelledby="offer-unavailable-title">
+          <h1 id="offer-unavailable-title" class="text-xl font-semibold">
+            Offer unavailable
+          </h1>
+          <p class="text-muted-foreground mt-2">
+            This offer could not be loaded. It may not exist or may no longer be accessible.
+          </p>
+        </section>
+      ) : (
+        <>
+          <div class="mb-5 mt-5">
+            <p class="text-muted-foreground text-sm font-medium">Contractor workspace</p>
+            <h1 class="mt-1 text-3xl font-semibold tracking-tight">Offer history</h1>
+            <p class="text-muted-foreground mt-2">
+              Previous versions, proposals, and customer decisions in recorded order.
+            </p>
+          </div>
+          <OfferDetailNav
+            offerId={offer.id}
+            current="history"
+            canEdit={view.canEdit}
+            canProposeChange={view.canProposeChange}
+          />
+          {events.length === 0 ? (
+            <section class="bg-card rounded-xl border p-6">
+              <h2 class="text-lg font-semibold">No history yet</h2>
+              <p class="text-muted-foreground mt-2 text-sm">
+                Versions and decisions will appear here when they are recorded.
+              </p>
+            </section>
+          ) : (
+            <ol class="border-border ml-2 space-y-5 border-l-2 pl-6">
+              {events.map((event) => (
+                <li
+                  class="relative"
+                  data-history-kind={event.kind}
+                  data-history-at={event.at}
+                  data-history-id={event.id}
+                >
+                  <span class="bg-primary absolute -left-[31px] top-6 size-3 rounded-full" aria-hidden="true"></span>
+                  {event.kind === "revision" ? (
+                    <details
+                      class="bg-card rounded-xl border p-5"
+                      id={`revision-${event.revision.id}`}
+                      data-offer-revision={event.revision.revision}
+                      data-revision-status={event.revision.status}
+                      data-revision-amount-minor={event.revision.base_amount_minor}
+                    >
+                      <summary class="cursor-pointer font-semibold focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+                        Version {event.revision.revision} recorded · {formatDateTime(event.at)}
+                      </summary>
+                      <div class="mt-4 space-y-4 border-t pt-4 text-sm">
+                        <p class="text-muted-foreground">Status: {event.revision.status}</p>
+                        <p class="whitespace-pre-wrap">{event.revision.base_scope}</p>
+                        <dl class="grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <dt class="text-muted-foreground">Version total</dt>
+                            <dd class="font-semibold">{formatMinorAmount(BigInt(event.revision.base_amount_minor))}</dd>
+                          </div>
+                          <div>
+                            <dt class="text-muted-foreground">Version deadline</dt>
+                            <dd class="font-semibold">{formatDate(event.revision.base_deadline)}</dd>
+                          </div>
+                        </dl>
+                        <div>
+                          <h3 class="font-medium">Priced work items</h3>
+                          <ul class="mt-2 divide-y border-t">
+                            {event.revision.items.map((item) => (
+                              <li class="flex flex-wrap justify-between gap-2 py-2" data-revision-item-id={item.id}>
+                                <span>
+                                  {item.name} · {item.quantity} {item.unit} · {item.specification}
+                                  <span class="text-muted-foreground block">
+                                    Rate {formatMinorAmount(BigInt(item.selling_rate_minor))}/{item.unit} · Private
+                                    effort {item.labor_hours_per_unit} h/{item.unit}
+                                  </span>
+                                </span>
+                                <span>{formatMinorAmount(BigInt(item.line_amount_minor))}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    </details>
+                  ) : event.kind === "revision-decision" ? (
+                    <div class="bg-card rounded-xl border p-5" id={`revision-decision-${event.revision.id}`}>
+                      <p class="font-semibold">
+                        Customer {event.revision.status} version {event.revision.revision}
+                      </p>
+                      <p class="text-muted-foreground mt-1 text-sm">{formatDateTime(event.at)}</p>
+                      {event.revision.rejection_comment ? (
+                        <p class="mt-3 whitespace-pre-wrap text-sm">Reason: {event.revision.rejection_comment}</p>
+                      ) : null}
+                      <a
+                        class="text-primary mt-3 inline-block text-sm underline underline-offset-4"
+                        href={`#revision-${event.revision.id}`}
+                      >
+                        View version details
+                      </a>
+                    </div>
+                  ) : event.kind === "change" ? (
+                    <details class="bg-card rounded-xl border p-5" id={`change-${event.change.id}`}>
+                      <summary class="cursor-pointer font-semibold focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+                        Change proposal {event.change.proposal_revision} · {event.change.status} ·{" "}
+                        {formatDateTime(event.at)}
+                      </summary>
+                      <div class="mt-4 space-y-3 border-t pt-4 text-sm">
+                        <p class="whitespace-pre-wrap">{event.change.description}</p>
+                        <dl class="grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <dt class="text-muted-foreground">Price effect</dt>
+                            <dd>{formatMinorAmount(BigInt(event.change.price_delta_minor ?? 0))}</dd>
+                          </div>
+                          <div>
+                            <dt class="text-muted-foreground">Deadline effect</dt>
+                            <dd>{event.change.deadline_delta_days ?? 0} days</dd>
+                          </div>
+                        </dl>
+                        {typeof event.change.estimate_snapshot.confirmed_site_facts === "string" ? (
+                          <p class="whitespace-pre-wrap">
+                            Confirmed site facts: {event.change.estimate_snapshot.confirmed_site_facts}
+                          </p>
+                        ) : null}
+                        <dl class="grid gap-3 sm:grid-cols-2">
+                          {[
+                            ["Item effects", event.change.estimate_snapshot.item_effects_delta_minor],
+                            [
+                              "Omission credit suggestion",
+                              event.change.estimate_snapshot.omission_credit_suggestion_minor,
+                            ],
+                            [
+                              "Confirmed omission credit",
+                              event.change.estimate_snapshot.confirmed_omission_credit_minor,
+                            ],
+                            ["Credit reconciliation", event.change.estimate_snapshot.credit_reconciliation_minor],
+                            ["Consequence delta", event.change.estimate_snapshot.consequence_delta_minor],
+                            [
+                              "Contractor commercial adjustment",
+                              event.change.estimate_snapshot.contractor_commercial_adjustment_minor,
+                            ],
+                          ].map(([label, value]) => {
+                            const amount = formatSnapshotMinor(value);
+                            return amount === null ? null : (
+                              <div>
+                                <dt class="text-muted-foreground">{label}</dt>
+                                <dd>{amount}</dd>
+                              </div>
+                            );
+                          })}
+                        </dl>
+                        {typeof event.change.estimate_snapshot.commercial_adjustment_reason === "string" ? (
+                          <p class="whitespace-pre-wrap">
+                            Commercial adjustment reason: {event.change.estimate_snapshot.commercial_adjustment_reason}
+                          </p>
+                        ) : null}
+                        {snapshotRecords(event.change.estimate_snapshot.consequences).length > 0 ? (
+                          <div>
+                            <h3 class="font-medium">Consequences</h3>
+                            <ul class="mt-2 space-y-2">
+                              {snapshotRecords(event.change.estimate_snapshot.consequences).map((consequence) => (
+                                <li class="rounded-md border p-3">
+                                  <p class="font-medium">
+                                    {scalarText(consequence.name, "Additional work")} ·{" "}
+                                    {scalarText(consequence.quantity)} {scalarText(consequence.unit)}
+                                  </p>
+                                  <p class="text-muted-foreground mt-1">
+                                    Selling rate: {formatSnapshotMinor(consequence.sellingRateMinor) ?? "Not recorded"}{" "}
+                                    · Effort: {scalarText(consequence.laborHoursPerUnit, "Not recorded")} h/unit
+                                  </p>
+                                  {typeof consequence.specification === "string" ? (
+                                    <p class="mt-1 whitespace-pre-wrap">{consequence.specification}</p>
+                                  ) : null}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                        <div>
+                          <h3 class="font-medium">Item effects</h3>
+                          {event.change.item_effects.length === 0 ? (
+                            <p class="text-muted-foreground mt-1">No item effects recorded.</p>
+                          ) : (
+                            <ul class="mt-2 space-y-2">
+                              {event.change.item_effects.map((rawEffect) => (
+                                <li class="rounded-md border p-3">
+                                  {itemEffect(rawEffect).before ? (
+                                    <p>
+                                      Before: {itemEffect(rawEffect).before?.name} ·{" "}
+                                      {itemEffect(rawEffect).before?.quantity} {itemEffect(rawEffect).before?.unit} ·
+                                      rate {formatMinorAmount(BigInt(itemEffect(rawEffect).before?.rate ?? 0))}
+                                      <span class="text-muted-foreground block whitespace-pre-wrap">
+                                        {itemEffect(rawEffect).before?.specification}
+                                      </span>
+                                      <span class="text-muted-foreground block">
+                                        Private effort: {itemEffect(rawEffect).before?.labor} h/unit
+                                      </span>
+                                    </p>
+                                  ) : (
+                                    <p>Before: no item</p>
+                                  )}
+                                  {itemEffect(rawEffect).after ? (
+                                    <p class="mt-2">
+                                      After: {itemEffect(rawEffect).after?.name} ·{" "}
+                                      {itemEffect(rawEffect).after?.quantity} {itemEffect(rawEffect).after?.unit} · rate{" "}
+                                      {formatMinorAmount(BigInt(itemEffect(rawEffect).after?.rate ?? 0))}
+                                      <span class="text-muted-foreground block whitespace-pre-wrap">
+                                        {itemEffect(rawEffect).after?.specification}
+                                      </span>
+                                      <span class="text-muted-foreground block">
+                                        Private effort: {itemEffect(rawEffect).after?.labor} h/unit
+                                      </span>
+                                    </p>
+                                  ) : (
+                                    <p class="mt-2">After: removed</p>
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+                    </details>
+                  ) : (
+                    <div class="bg-card rounded-xl border p-5" id={`change-decision-${event.change.id}`}>
+                      <p class="font-semibold">
+                        Customer {event.change.decision?.outcome} change proposal {event.change.proposal_revision}
+                      </p>
+                      <p class="text-muted-foreground mt-1 text-sm">{formatDateTime(event.at)}</p>
+                      {event.change.decision?.rejection_comment ? (
+                        <p class="mt-3 whitespace-pre-wrap text-sm">
+                          Reason: {event.change.decision.rejection_comment}
+                        </p>
+                      ) : null}
+                      <a
+                        class="text-primary mt-3 inline-block text-sm underline underline-offset-4"
+                        href={`#change-${event.change.id}`}
+                      >
+                        View proposal details
+                      </a>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+        </>
+      )}
+    </main>
+  </div>
+</Layout>

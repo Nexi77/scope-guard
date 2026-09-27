@@ -352,6 +352,45 @@ async function run() {
     name: "revision history",
     pinHash,
   });
+  const historyLockedOffer = await seedOffer({
+    client: contractorA.client,
+    contractorId: contractorA.id,
+    name: "pending offer with change history",
+    pinHash,
+  });
+  await seedChange(contractorA.client, contractorA.id, historyLockedOffer.id, "Recorded history lock", 100);
+  const historyLockError = await expectError(
+    contractorA.client.rpc("replace_pending_offer_revision", {
+      p_offer_id: historyLockedOffer.id,
+      p_expected_revision: 1,
+      p_base_scope: "Must remain unchanged",
+      p_base_deadline: deadline,
+      p_items: [
+        {
+          name: "Replacement item",
+          quantity: 1,
+          unit: "piece",
+          specification: "Must not be saved",
+          selling_rate_minor: 100,
+          labor_hours_per_unit: 1,
+        },
+      ],
+    }),
+    "replace a pending offer after change history begins",
+  );
+  expect(historyLockError.code === "PT409", "recorded change history must reject replacement as a conflict");
+  const { data: historyLockedState, error: historyLockedStateError } = await contractorA.client
+    .from("offers")
+    .select("base_scope, base_revision, base_amount_minor")
+    .eq("id", historyLockedOffer.id)
+    .single();
+  expectNoError(historyLockedStateError, "read unchanged history-locked offer");
+  expect(
+    historyLockedState.base_scope === "pending offer with change history base scope" &&
+      historyLockedState.base_revision === 1 &&
+      historyLockedState.base_amount_minor === 10_000,
+    "rejected history-locked replacement must leave the offer unchanged",
+  );
   const { data: originalRevisionRows, error: originalRevisionError } = await contractorA.client
     .from("offer_revisions")
     .select("id, revision, status, items")
@@ -1215,7 +1254,7 @@ async function run() {
   const { data: ownOffers, error: ownOffersError } = await contractorA.client.from("offers").select("id");
   expectNoError(ownOffersError, "contractor A reads own offers");
   expect(
-    ownOffers.length === 7 && ownOffers.every((offer) => offer.id !== offerB.id),
+    ownOffers.length === 8 && ownOffers.every((offer) => offer.id !== offerB.id),
     "contractor A must not read contractor B's offer",
   );
 
@@ -1482,10 +1521,18 @@ async function run() {
 
   const { data: pageCustomer, error: pageCustomerError } = await contractorA.client
     .from("customers")
-    .insert({ contractor_id: contractorA.id, name: "Pagination customer" })
+    .insert({ contractor_id: contractorA.id, name: "Pagination page fixture A" })
     .select("id")
     .single();
   expectNoError(pageCustomerError, "seed pagination customer");
+  const { data: otherPageCustomers, error: otherPageCustomersError } = await contractorA.client
+    .from("customers")
+    .insert([
+      { contractor_id: contractorA.id, name: "Pagination page fixture B" },
+      { contractor_id: contractorA.id, name: "Pagination page fixture C" },
+    ])
+    .select("id, name");
+  expectNoError(otherPageCustomersError, "seed other customer pages");
   const paginationOffers = [];
   const tiedCreatedAt = "2026-09-01T12:00:00.000Z";
   for (const name of ["page one", "page two", "page three", "page four"]) {
@@ -1501,6 +1548,128 @@ async function run() {
     );
   }
   const tiedOfferIds = paginationOffers.map(({ id }) => id).sort();
+
+  const { data: customerFirstPage, error: customerFirstPageError } = await contractorA.client.rpc(
+    "list_contractor_customers",
+    { p_query: "Pagination page fixture", p_page: 1, p_page_size: 2 },
+  );
+  expectNoError(customerFirstPageError, "read first numbered customer page");
+  expect(
+    customerFirstPage.length === 2 &&
+      customerFirstPage.map((row) => row.name).join(",") === "Pagination page fixture A,Pagination page fixture B" &&
+      customerFirstPage.every((row) => row.total_customers === 3 && row.page === 1),
+    "customer pages must return matching counts, one-based page metadata, and stable name ordering",
+  );
+  expect(
+    customerFirstPage[0].offer_count === 4 && customerFirstPage[1].offer_count === 0,
+    "customer summaries must count only each customer's owned offers",
+  );
+  const { data: customerActivityRows, error: customerActivityError } = await contractorA.client
+    .from("offers")
+    .select("updated_at")
+    .eq("customer_id", pageCustomer.id)
+    .eq("contractor_id", contractorA.id);
+  expectNoError(customerActivityError, "read fixture customer activity");
+  const expectedLastActivity = customerActivityRows
+    .map((row) => row.updated_at)
+    .sort()
+    .at(-1);
+  expect(
+    customerFirstPage[0].last_activity === expectedLastActivity,
+    "customer activity must be the latest offer updated_at value",
+  );
+  const { data: customerSecondPage, error: customerSecondPageError } = await contractorA.client.rpc(
+    "list_contractor_customers",
+    { p_query: "Pagination page fixture", p_page: 99, p_page_size: 2 },
+  );
+  expectNoError(customerSecondPageError, "clamp an out-of-range customer page");
+  expect(
+    customerSecondPage.length === 1 &&
+      customerSecondPage[0].name === "Pagination page fixture C" &&
+      customerSecondPage[0].page === 2,
+    "out-of-range customer pages must clamp to the last stable page",
+  );
+  const { data: malformedCustomerPage, error: malformedCustomerPageError } = await contractorA.client.rpc(
+    "list_contractor_customers",
+    { p_query: "Pagination page fixture", p_page: 0, p_page_size: 2 },
+  );
+  expectNoError(malformedCustomerPageError, "clamp a malformed customer page");
+  expect(malformedCustomerPage[0].page === 1, "non-positive customer pages must clamp to page one");
+
+  const { data: numberedOffersFirstPage, error: numberedOffersFirstError } = await contractorA.client.rpc(
+    "list_contractor_customer_offer_page",
+    { p_customer_id: pageCustomer.id, p_page: 1, p_page_size: 2 },
+  );
+  expectNoError(numberedOffersFirstError, "read first numbered offer page");
+  expect(
+    numberedOffersFirstPage.map((row) => row.offer_id).join(",") === tiedOfferIds.slice(-2).reverse().join(",") &&
+      numberedOffersFirstPage.every((row) => row.total_offers === 4 && row.page === 1),
+    "numbered offer pages must have stable descending timestamp and ID order with total metadata",
+  );
+  const { data: numberedOffersSecondPage, error: numberedOffersSecondError } = await contractorA.client.rpc(
+    "list_contractor_customer_offer_page",
+    { p_customer_id: pageCustomer.id, p_page: 2, p_page_size: 2 },
+  );
+  expectNoError(numberedOffersSecondError, "read second numbered offer page");
+  expect(
+    numberedOffersSecondPage.map((row) => row.offer_id).join(",") === tiedOfferIds.slice(0, 2).reverse().join(","),
+    "second numbered offer page must continue without duplicates or omissions",
+  );
+  const { data: clampedOfferPage, error: clampedOfferPageError } = await contractorA.client.rpc(
+    "list_contractor_customer_offer_page",
+    { p_customer_id: pageCustomer.id, p_page: 99, p_page_size: 2 },
+  );
+  expectNoError(clampedOfferPageError, "clamp an out-of-range offer page");
+  expect(
+    clampedOfferPage.length === 2 && clampedOfferPage.every((row) => row.page === 2),
+    "out-of-range offer pages must clamp to the last page",
+  );
+  const { data: emptyOfferPage, error: emptyOfferPageError } = await contractorA.client.rpc(
+    "list_contractor_customer_offer_page",
+    { p_customer_id: otherPageCustomers[0].id, p_page: 99, p_page_size: 2 },
+  );
+  expectNoError(emptyOfferPageError, "read an empty customer's offer page");
+  expect(emptyOfferPage.length === 0, "empty owned customers must return no offers");
+  const { data: foreignNumberedPage, error: foreignNumberedPageError } = await contractorA.client.rpc(
+    "list_contractor_customer_offer_page",
+    { p_customer_id: offerB.customerId, p_page: 1, p_page_size: 2 },
+  );
+  expectNoError(foreignNumberedPageError, "read a foreign customer's numbered page");
+  expect(foreignNumberedPage.length === 0, "foreign customer IDs must return no numbered offers");
+  const { data: unknownNumberedPage, error: unknownNumberedPageError } = await contractorA.client.rpc(
+    "list_contractor_customer_offer_page",
+    { p_customer_id: randomUUID(), p_page: 1, p_page_size: 2 },
+  );
+  expectNoError(unknownNumberedPageError, "read an unknown customer's numbered page");
+  expect(unknownNumberedPage.length === 0, "unknown customer IDs must return no numbered offers");
+  await expectError(
+    anonymous.rpc("list_contractor_customer_offer_page", {
+      p_customer_id: pageCustomer.id,
+      p_page: 1,
+      p_page_size: 2,
+    }),
+    "anonymous numbered offer-list RPC access",
+  );
+
+  const { data: matchingCustomers, error: matchingCustomersError } = await contractorA.client.rpc(
+    "list_contractor_customers",
+    { p_query: "Pagination page fixture", p_page: 1, p_page_size: 100 },
+  );
+  expectNoError(matchingCustomersError, "read all matching customer summaries");
+  expect(
+    matchingCustomers.length === 3 && matchingCustomers.every((row) => row.total_customers === 3),
+    "customer searches must count only matching customers owned by the caller",
+  );
+
+  const { data: numberedCurrentOffer, error: numberedCurrentOfferError } = await contractorA.client.rpc(
+    "list_contractor_customer_offer_page",
+    { p_customer_id: offerA.customerId, p_page: 1, p_page_size: 10 },
+  );
+  expectNoError(numberedCurrentOfferError, "read current offer values from numbered page");
+  expect(
+    numberedCurrentOffer.find((row) => row.offer_id === offerA.id)?.current_amount_minor === "11500",
+    "numbered pages must include accepted changes and exclude pending or rejected changes from the active amount",
+  );
 
   const { data: browseFirstPage, error: browseFirstPageError } = await contractorA.client.rpc("list_customer_offers", {
     p_customer_id: pageCustomer.id,
@@ -1553,6 +1722,15 @@ async function run() {
   expect(
     afterPendingChange.find((row) => row.offer_id === offerA.id)?.current_amount_minor === "11500",
     "pending changes must not affect current amount",
+  );
+  const { data: afterRejectedChangePage, error: afterRejectedChangePageError } = await contractorA.client.rpc(
+    "list_contractor_customer_offer_page",
+    { p_customer_id: offerA.customerId, p_page: 1, p_page_size: 10 },
+  );
+  expectNoError(afterRejectedChangePageError, "read current values after rejecting a change");
+  expect(
+    afterRejectedChangePage.find((row) => row.offer_id === offerA.id)?.current_amount_minor === "11500",
+    "numbered pages must exclude rejected changes from the active amount",
   );
   const { data: foreignCustomerPage, error: foreignCustomerPageError } = await contractorA.client.rpc(
     "list_customer_offers",

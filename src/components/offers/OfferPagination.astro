@@ -1,0 +1,42 @@
+---
+interface Props {
+  entity: "customers" | "offers";
+  position: "before" | "after";
+  summary: string;
+  page: number;
+  pageCount: number;
+  previousHref?: string;
+  nextHref?: string;
+}
+
+const { entity, position, summary, page, pageCount, previousHref, nextHref } = Astro.props;
+const label = entity === "customers" ? "Customer" : "Offer";
+const positionLabel = position === "before" ? "before list" : "after list";
+---
+
+<div
+  class:list={["flex flex-wrap items-center justify-between gap-x-4 gap-y-2", position === "before" ? "mb-3" : "mt-4"]}
+>
+  <p class="text-muted-foreground text-xs">{summary}</p>
+  <nav class="flex flex-wrap items-center gap-x-3 gap-y-1" aria-label={`${label} pages ${positionLabel}`}>
+    {previousHref ? (
+      <a
+        class="text-primary inline-flex min-h-9 items-center text-sm underline underline-offset-4 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        href={previousHref}
+      >
+        Previous {entity}
+      </a>
+    ) : null}
+    <span class="text-muted-foreground text-xs">
+      Page {page} of {pageCount}
+    </span>
+    {nextHref ? (
+      <a
+        class="text-primary inline-flex min-h-9 items-center text-sm underline underline-offset-4 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        href={nextHref}
+      >
+        Next {entity}
+      </a>
+    ) : null}
+  </nav>
+</div>

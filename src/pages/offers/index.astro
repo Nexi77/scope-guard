@@ -1,7 +1,7 @@
 ---
 import { AccountMenu } from "@/components/dashboard/AccountMenu";
 import ContractorNavigation from "@/components/dashboard/ContractorNavigation.astro";
-import ManageOfferPin from "@/components/offers/ManageOfferPin";
+import OfferBrowseTable from "@/components/offers/OfferBrowseTable.astro";
 import Layout from "@/layouts/Layout.astro";
 import { createClient } from "@/lib/supabase";
 
@@ -17,41 +17,62 @@ interface OfferSummary {
   current_amount_minor: string;
   current_deadline: string;
   created_at: string;
-  pin_configured?: boolean;
+}
+
+interface CustomerSummary {
+  customer_id: string;
+  name: string;
+  offer_count: number;
+  last_activity: string | null;
+  total_customers: number;
+  page: number;
+}
+
+interface OfferPage {
+  offer_id: string;
+  original_scope: string;
+  status: string;
+  currency_code: string;
+  current_amount_minor: string;
+  current_deadline: string;
+  created_at: string;
+  total_offers: number;
+  page: number;
 }
 
 const { user } = Astro.locals;
 const supabase = createClient(Astro.request.headers, Astro.cookies);
 const params = Astro.url.searchParams;
 const query = (params.get("q") ?? "").trim().slice(0, 100);
-const pageValue = Number(params.get("page") ?? "0");
-const customerPage = Number.isSafeInteger(pageValue) && pageValue >= 0 ? pageValue : 0;
+const customerPageValue = Number(params.get("page") ?? "1");
+let customerPage = Number.isSafeInteger(customerPageValue) && customerPageValue >= 1 ? customerPageValue : 1;
 const customerId = params.get("customer") ?? "";
-const offerBeforeCreatedAt = params.get("before") ?? "";
-const offerBeforeId = params.get("beforeId") ?? "";
+const offerPageValue = Number(params.get("offerPage") ?? "1");
+let offerPage = Number.isSafeInteger(offerPageValue) && offerPageValue >= 1 ? offerPageValue : 1;
 const validCustomerId = UUID_PATTERN.test(customerId);
 
-let customers: { id: string; name: string }[] = [];
+let customers: CustomerSummary[] = [];
 let customersError = false;
-let hasNextCustomerPage = false;
+let totalCustomers = 0;
 let selectedCustomer: { id: string; name: string } | null = null;
 let selectedCustomerError = false;
 let offers: OfferSummary[] = [];
 let offersError = false;
-let hasNextOfferPage = false;
+let totalOffers = 0;
+let offerIdsWithHistory = new Set<string>();
 
 if (supabase && user) {
-  const from = customerPage * CUSTOMER_PAGE_SIZE;
-  const { data, error } = await supabase
-    .from("customers")
-    .select("id, name")
-    .ilike("name", `%${query.replace(/[\\%_]/g, "\\$&")}%`)
-    .order("name", { ascending: true })
-    .order("id", { ascending: true })
-    .range(from, from + CUSTOMER_PAGE_SIZE);
-  customersError = Boolean(error);
-  customers = (data ?? []).slice(0, CUSTOMER_PAGE_SIZE);
-  hasNextCustomerPage = (data?.length ?? 0) > CUSTOMER_PAGE_SIZE;
+  const { data: customerRows, error: customerRowsError } = await supabase
+    .rpc("list_contractor_customers", {
+      p_query: query,
+      p_page: customerPage,
+      p_page_size: CUSTOMER_PAGE_SIZE,
+    })
+    .overrideTypes<CustomerSummary[], { merge: false }>();
+  customersError = Boolean(customerRowsError);
+  customers = Array.isArray(customerRows) ? customerRows : [];
+  totalCustomers = customers[0]?.total_customers ?? 0;
+  customerPage = customers[0]?.page ?? 1;
 
   if (customerId) {
     if (!validCustomerId) {
@@ -61,35 +82,35 @@ if (supabase && user) {
         .from("customers")
         .select("id, name")
         .eq("id", customerId)
+        .eq("contractor_id", user.id)
         .maybeSingle();
       selectedCustomerError = Boolean(customerError);
       selectedCustomer = customer;
       if (selectedCustomer) {
-        const cursorValid = /^\d{4}-\d{2}-\d{2}T/.test(offerBeforeCreatedAt) && UUID_PATTERN.test(offerBeforeId);
         const { data: offerData, error: offerError } = await supabase
-          .rpc("list_customer_offers", {
+          .rpc("list_contractor_customer_offer_page", {
             p_customer_id: selectedCustomer.id,
-            p_limit: OFFER_PAGE_SIZE + 1,
-            p_before_created_at: cursorValid ? offerBeforeCreatedAt : null,
-            p_before_id: cursorValid ? offerBeforeId : null,
+            p_page: offerPage,
+            p_page_size: OFFER_PAGE_SIZE,
           })
-          .overrideTypes<OfferSummary[], { merge: false }>();
+          .overrideTypes<OfferPage[], { merge: false }>();
         offersError = Boolean(offerError);
         const offerRows = Array.isArray(offerData) ? offerData : [];
-        offers = offerRows.slice(0, OFFER_PAGE_SIZE);
-        hasNextOfferPage = offerRows.length > OFFER_PAGE_SIZE;
-        if (offers.length > 0) {
-          const { data: pinRows, error: pinError } = await supabase
-            .from("offers")
-            .select("id, pin_hash")
+        offers = offerRows;
+        totalOffers = offerRows[0]?.total_offers ?? 0;
+        offerPage = offerRows[0]?.page ?? 1;
+        if (!offersError && offers.length > 0) {
+          const { data: changeRows, error: changesError } = await supabase
+            .from("offer_changes")
+            .select("offer_id")
             .eq("contractor_id", user.id)
             .in(
-              "id",
+              "offer_id",
               offers.map((offer) => offer.offer_id),
-            );
-          if (pinError) offersError = true;
-          const configuredById = new Map((pinRows ?? []).map((offer) => [offer.id, offer.pin_hash !== null]));
-          offers = offers.map((offer) => ({ ...offer, pin_configured: configuredById.get(offer.offer_id) ?? false }));
+            )
+            .overrideTypes<{ offer_id: string }[], { merge: false }>();
+          offersError = Boolean(changesError);
+          offerIdsWithHistory = new Set((changeRows ?? []).map((change) => change.offer_id));
         }
       }
     }
@@ -102,6 +123,23 @@ const customerPageHref = (page: number) => {
   next.set("page", String(page));
   return `/offers?${next.toString()}`;
 };
+const offerPageHref = (page: number) => {
+  if (!selectedCustomer) return "/offers";
+  const next = new URLSearchParams({ customer: selectedCustomer.id, offerPage: String(page) });
+  if (query) next.set("q", query);
+  if (customerPage > 1) next.set("page", String(customerPage));
+  return `/offers?${next.toString()}#offer-list-title`;
+};
+const customerPageCount = Math.max(1, Math.ceil(totalCustomers / CUSTOMER_PAGE_SIZE));
+const offerPageCount = Math.max(1, Math.ceil(totalOffers / OFFER_PAGE_SIZE));
+const customerRangeSummary =
+  totalCustomers === 0
+    ? "No customers yet"
+    : `Showing ${(customerPage - 1) * CUSTOMER_PAGE_SIZE + 1}–${Math.min(customerPage * CUSTOMER_PAGE_SIZE, totalCustomers)} of ${totalCustomers} customers`;
+const offerRangeSummary =
+  totalOffers === 0
+    ? "No offers yet"
+    : `Showing ${(offerPage - 1) * OFFER_PAGE_SIZE + 1}–${Math.min(offerPage * OFFER_PAGE_SIZE, totalOffers)} of ${totalOffers} offers`;
 const formatPrice = (minorText: string) => {
   try {
     const minor = BigInt(minorText);
@@ -112,18 +150,11 @@ const formatPrice = (minorText: string) => {
     return "Unavailable";
   }
 };
-const dateOnly = (value: string) => value.slice(0, 10);
+const dateOnly = (value: string | null) => (value ? value.slice(0, 10) : "No activity yet");
 const scopeExcerpt = (scope: string) => {
   const normalized = scope.replace(/\s+/g, " ").trim();
   return normalized.length > 160 ? `${normalized.slice(0, 157).trimEnd()}…` : normalized;
 };
-const nextOfferHref = (() => {
-  const last = offers.at(-1);
-  if (!last || !selectedCustomer) return "#";
-  const next = new URLSearchParams({ customer: selectedCustomer.id, before: last.created_at, beforeId: last.offer_id });
-  if (query) next.set("q", query);
-  return `/offers?${next.toString()}`;
-})();
 ---
 
 <Layout title="Offers · ScopeGuard">
@@ -149,13 +180,13 @@ const nextOfferHref = (() => {
         </div>
         <a
           href="/offers/new"
-          class="bg-primary text-primary-foreground inline-flex h-10 items-center rounded-md px-4 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
+          class="bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-ring inline-flex h-10 items-center rounded-md px-4 text-sm font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
         >
           Create offer
         </a>
       </div>
 
-      <form method="GET" action="/offers" class="mb-6 flex max-w-xl gap-2">
+      <form method="GET" action="/offers" class="mb-6 flex max-w-xl gap-2" data-offer-browse-form>
         <label for="customer-search" class="sr-only">
           Find customer by name
         </label>
@@ -167,7 +198,7 @@ const nextOfferHref = (() => {
           class="border-input bg-background placeholder:text-muted-foreground focus-visible:ring-ring h-10 min-w-0 flex-1 rounded-md border px-3 text-sm focus-visible:ring-2 focus-visible:outline-none"
         />
         <button
-          class="border-input bg-background inline-flex h-10 items-center rounded-md border px-4 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          class="border-input bg-background hover:bg-accent focus-visible:ring-ring inline-flex h-10 items-center rounded-md border px-4 text-sm font-medium focus-visible:ring-2 focus-visible:outline-none"
           type="submit"
         >
           Search
@@ -195,126 +226,53 @@ const nextOfferHref = (() => {
           ) : null}
         </section>
       ) : (
-        <div class="grid items-start gap-8 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-          <section aria-labelledby="customer-list-title">
-            <h2 id="customer-list-title" class="mb-3 text-lg font-semibold">
-              Customers
-            </h2>
-            <ul class="divide-border bg-card divide-y overflow-hidden rounded-xl border">
-              {customers.map((customer) => (
-                <li>
-                  <a
-                    href={`/offers?${new URLSearchParams({ ...(query ? { q: query } : {}), customer: customer.id }).toString()}`}
-                    aria-current={selectedCustomer?.id === customer.id ? "true" : undefined}
-                    class:list={[
-                      "flex min-h-14 items-center justify-start gap-3 px-4 py-3 text-sm focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none",
-                      selectedCustomer?.id === customer.id ? "bg-secondary font-medium" : "hover:bg-secondary/60",
-                    ]}
-                  >
-                    <span>{customer.name}</span>
-                  </a>
-                </li>
-              ))}
-            </ul>
-            <div class="mt-4 flex items-center justify-between gap-3">
-              {customerPage > 0 ? (
-                <a class="text-primary text-sm underline underline-offset-4" href={customerPageHref(customerPage - 1)}>
-                  Previous customers
-                </a>
-              ) : (
-                <span />
-              )}
-              {hasNextCustomerPage ? (
-                <a class="text-primary text-sm underline underline-offset-4" href={customerPageHref(customerPage + 1)}>
-                  Next customers
-                </a>
-              ) : null}
-            </div>
-          </section>
-
-          <section aria-labelledby="offer-list-title" aria-live="polite">
-            {!customerId ? (
-              <div class="bg-card rounded-xl border p-6">
-                <h2 class="text-lg font-semibold">Select a customer</h2>
-                <p class="text-muted-foreground mt-2">Choose a customer to load their offers.</p>
-              </div>
-            ) : selectedCustomerError ? (
-              <p class="border-destructive/30 bg-destructive/10 text-destructive rounded-md border p-4" role="alert">
-                This customer could not be loaded. Refresh the page or select a customer from the list.
-              </p>
-            ) : !selectedCustomer ? (
-              <div class="bg-card rounded-xl border p-6">
-                <h2 class="text-lg font-semibold">Customer unavailable</h2>
-                <p class="text-muted-foreground mt-2">
-                  This customer is unavailable. They may not exist or may no longer be accessible.
-                </p>
-              </div>
-            ) : offersError ? (
-              <p class="border-destructive/30 bg-destructive/10 text-destructive rounded-md border p-4" role="alert">
-                Offers could not be loaded. Refresh the page and try again.
-              </p>
-            ) : (
-              <>
-                <h2 id="offer-list-title" class="mb-3 text-lg font-semibold">
-                  Offers for {selectedCustomer.name}
-                </h2>
-                {offers.length === 0 ? (
-                  <div class="bg-card rounded-xl border p-6">
-                    <p class="text-muted-foreground">No offers for this customer yet.</p>
-                  </div>
-                ) : (
-                  <ul class="space-y-3">
-                    {offers.map((offer) => (
-                      <li class="bg-card rounded-xl border p-4 sm:p-5">
-                        <div class="flex flex-wrap items-start justify-between gap-3">
-                          <div class="min-w-0 flex-1">
-                            <p class="line-clamp-2 font-medium">{scopeExcerpt(offer.original_scope)}</p>
-                            <p class="text-muted-foreground mt-2 text-sm">Created {dateOnly(offer.created_at)}</p>
-                          </div>
-                          <span class="bg-secondary rounded-full px-3 py-1 text-xs font-medium capitalize">
-                            {offer.status}
-                          </span>
-                        </div>
-                        <dl class="mt-4 grid grid-cols-2 gap-3 text-sm">
-                          <div>
-                            <dt class="text-muted-foreground">Current price</dt>
-                            <dd class="mt-1 font-semibold">{formatPrice(offer.current_amount_minor)}</dd>
-                          </div>
-                          <div>
-                            <dt class="text-muted-foreground">Current deadline</dt>
-                            <dd class="mt-1 font-semibold">{dateOnly(offer.current_deadline)}</dd>
-                          </div>
-                        </dl>
-                        <a
-                          href={`/offers/${encodeURIComponent(offer.offer_id)}`}
-                          class="text-primary mt-4 inline-flex min-h-9 items-center font-medium underline underline-offset-4 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                        >
-                          Review offer
-                        </a>
-                        <div data-offer-id={offer.offer_id}>
-                          <ManageOfferPin
-                            offerId={offer.offer_id}
-                            configured={offer.pin_configured ?? false}
-                            client:load
-                          />
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {hasNextOfferPage ? (
-                  <a
-                    class="text-primary mt-5 inline-flex text-sm font-medium underline underline-offset-4 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                    href={nextOfferHref}
-                  >
-                    Next offers
-                  </a>
-                ) : null}
-              </>
-            )}
-          </section>
-        </div>
+        <OfferBrowseTable
+          customers={customers}
+          offers={offers}
+          selectedCustomer={selectedCustomer}
+          customerId={customerId}
+          selectedCustomerError={selectedCustomerError}
+          offersError={offersError}
+          offerIdsWithHistory={offerIdsWithHistory}
+          query={query}
+          customerPage={customerPage}
+          customerPageCount={customerPageCount}
+          customerRangeSummary={customerRangeSummary}
+          offerPage={offerPage}
+          offerPageCount={offerPageCount}
+          offerRangeSummary={offerRangeSummary}
+          customerPageHref={customerPageHref}
+          offerPageHref={offerPageHref}
+          formatPrice={formatPrice}
+          dateOnly={dateOnly}
+          scopeExcerpt={scopeExcerpt}
+        />
       )}
     </main>
   </div>
 </Layout>
+
+<style>
+  :global(html) {
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :global(html) {
+      scroll-behavior: auto;
+    }
+  }
+</style>
+
+<script>
+  document.querySelectorAll<HTMLFormElement>("[data-offer-browse-form]").forEach((form) => {
+    form.addEventListener("submit", () => {
+      document.querySelector("main")?.setAttribute("aria-busy", "true");
+      const button = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+      if (button) {
+        button.setAttribute("aria-disabled", "true");
+        button.textContent = "Loading…";
+      }
+    });
+  });
+</script>

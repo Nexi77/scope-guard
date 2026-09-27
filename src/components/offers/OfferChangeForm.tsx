@@ -352,7 +352,11 @@ export default function OfferChangeForm({
         `/api/offers/${encodeURIComponent(offerId)}/changes/${action === "preview" ? "preview" : ""}`,
         { method: "POST", body, credentials: "same-origin" },
       );
-      const result = (await response.json()) as { error?: string; estimate?: Record<string, unknown> };
+      const result = (await response.json()) as {
+        error?: string;
+        estimate?: Record<string, unknown>;
+        changeId?: string;
+      };
       if (!response.ok) {
         setError(result.error ?? "The change could not be processed.");
         if (result.estimate) {
@@ -362,7 +366,11 @@ export default function OfferChangeForm({
         return;
       }
       if (action === "record") {
-        window.location.reload();
+        window.location.assign(
+          result.changeId
+            ? `/offers/${encodeURIComponent(offerId)}/history#change-${encodeURIComponent(result.changeId)}`
+            : `/offers/${encodeURIComponent(offerId)}`,
+        );
         return;
       }
       setEstimate(result.estimate ?? null);

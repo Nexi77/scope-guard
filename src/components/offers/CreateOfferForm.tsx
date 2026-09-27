@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Plus, UserPlus, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,7 @@ interface CreateOfferFormProps {
 
 type CustomerMode = "existing" | "new";
 type Errors = Partial<Record<"customer" | "scope" | "deadline", string>>;
+type PendingTemplate = { itemId: string; templateId: string } | null;
 
 const today = new Date().toISOString().slice(0, 10);
 
@@ -42,16 +43,25 @@ function CreateOfferForm({
   createdOfferId,
   createdCustomerId,
 }: CreateOfferFormProps) {
+  const initialItemId = useId();
   const [customerMode, setCustomerMode] = useState<CustomerMode>(customers.length ? "existing" : "new");
   const [customerId, setCustomerId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [baseScope, setBaseScope] = useState("");
   const [deadline, setDeadline] = useState("");
-  const [items, setItems] = useState<OfferItemDraft[]>([{ ...EMPTY_OFFER_ITEM }]);
+  const [items, setItems] = useState<OfferItemDraft[]>(() => [{ ...EMPTY_OFFER_ITEM, id: initialItemId }]);
   const [itemTemplateIds, setItemTemplateIds] = useState<Record<string, string>>({});
+  const [pendingTemplate, setPendingTemplate] = useState<PendingTemplate>(null);
   const [itemError, setItemError] = useState<OfferItemValidationError | null>(null);
   const [confirmDuplicate, setConfirmDuplicate] = useState(false);
   const [errors, setErrors] = useState<Errors>({});
+  const [focusRequest, setFocusRequest] = useState(serverError ? 1 : 0);
+  const errorSummaryRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (focusRequest === 0) return;
+    errorSummaryRef.current?.focus();
+  }, [focusRequest]);
 
   const matchingCustomer = useMemo(
     () => customers.find((customer) => customer.name.trim().toLowerCase() === customerName.trim().toLowerCase()),
@@ -68,29 +78,38 @@ function CreateOfferForm({
     setErrors((current) => ({ ...current, customer: undefined }));
   }
 
-  function applyItemTemplate(index: number, templateId: string) {
+  function applyItemTemplate(itemId: string, templateId: string) {
     const template = templates.find((candidate) => candidate.id === templateId);
-    const item = items[index];
+    const item = items.find((candidate) => candidate.id === itemId);
     if (templateId === "") {
-      if (item.id !== undefined) {
-        setItemTemplateIds((current) => {
-          return Object.fromEntries(Object.entries(current).filter(([id]) => id !== item.id));
-        });
-      }
+      setItemTemplateIds((current) => Object.fromEntries(Object.entries(current).filter(([id]) => id !== itemId)));
+      setPendingTemplate(null);
       return;
     }
-    if (!template) return;
-    const itemId = item.id ?? crypto.randomUUID();
+    if (!template || item?.id !== itemId) return;
+    const hasValues = [item.name, item.quantity, item.unit, item.specification, item.sellingRate, item.laborHours].some(
+      (value) => value.trim().length > 0,
+    );
+    if (hasValues && itemTemplateIds[itemId] !== templateId) {
+      setPendingTemplate({ itemId, templateId });
+      return;
+    }
+    commitItemTemplate(itemId, templateId);
+  }
+
+  function commitItemTemplate(itemId: string, templateId: string) {
+    const template = templates.find((candidate) => candidate.id === templateId);
+    const item = items.find((candidate) => candidate.id === itemId);
+    if (!template || !item) return;
     setItems((current) =>
-      current.map((candidate, itemIndex) =>
-        itemIndex === index
+      current.map((candidate) =>
+        candidate.id === itemId
           ? {
               ...candidate,
-              id: itemId,
               name: template.name,
-              quantity: candidate.quantity || "1",
+              quantity: candidate.quantity.length ? candidate.quantity : "1",
               unit: template.unit,
-              specification: candidate.specification || "",
+              specification: candidate.specification,
               sellingRate:
                 template.sellingRateMinor === null
                   ? ""
@@ -103,6 +122,12 @@ function CreateOfferForm({
     setItemTemplateIds((current) => {
       return { ...current, [itemId]: templateId };
     });
+    setPendingTemplate(null);
+  }
+
+  function confirmTemplate() {
+    if (!pendingTemplate) return;
+    commitItemTemplate(pendingTemplate.itemId, pendingTemplate.templateId);
   }
 
   function validate() {
@@ -132,7 +157,10 @@ function CreateOfferForm({
   }
 
   function handleSubmit(event: React.SubmitEvent<HTMLFormElement>) {
-    if (!validate()) event.preventDefault();
+    if (!validate()) {
+      event.preventDefault();
+      setFocusRequest((request) => request + 1);
+    }
   }
 
   if (created) {
@@ -174,6 +202,16 @@ function CreateOfferForm({
     );
   }
 
+  const hasErrors = Boolean(serverError ?? (Object.values(errors).some(Boolean) || itemError !== null));
+  const itemFieldLabels: Record<OfferItemValidationError["field"], string> = {
+    name: "item name",
+    quantity: "quantity",
+    unit: "unit",
+    specification: "specification",
+    sellingRate: "selling rate",
+    laborHours: "labor hours",
+  };
+
   return (
     <form
       method="POST"
@@ -188,6 +226,54 @@ function CreateOfferForm({
         name="confirm_duplicate"
         value={customerMode === "new" && confirmDuplicate ? "true" : "false"}
       />
+
+      {hasErrors ? (
+        <section
+          ref={errorSummaryRef}
+          tabIndex={-1}
+          className="border-destructive/30 bg-destructive/5 focus-visible:ring-ring rounded-md border p-4 outline-none focus-visible:ring-2"
+          role="alert"
+          aria-labelledby="offer-error-summary-title"
+        >
+          <h2 id="offer-error-summary-title" className="font-semibold">
+            Review these fields before creating the offer
+          </h2>
+          {serverError ? <p className="mt-2 text-sm">{serverError}</p> : null}
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+            {errors.customer ? (
+              <li>
+                <a
+                  className="underline underline-offset-2"
+                  href={`#${customerMode === "existing" ? "customer-id" : "customer-name"}`}
+                >
+                  Customer: {errors.customer}
+                </a>
+              </li>
+            ) : null}
+            {errors.scope ? (
+              <li>
+                <a className="underline underline-offset-2" href="#base-scope">
+                  Original scope: {errors.scope}
+                </a>
+              </li>
+            ) : null}
+            {errors.deadline ? (
+              <li>
+                <a className="underline underline-offset-2" href="#base-deadline">
+                  Deadline: {errors.deadline}
+                </a>
+              </li>
+            ) : null}
+            {itemError ? (
+              <li>
+                <a className="underline underline-offset-2" href={`#item-${itemError.itemIndex}-${itemError.field}`}>
+                  Item {itemError.itemIndex + 1} {itemFieldLabels[itemError.field]}: {itemError.message}
+                </a>
+              </li>
+            ) : null}
+          </ul>
+        </section>
+      ) : null}
       <input
         type="hidden"
         name="items_json"
@@ -225,7 +311,7 @@ function CreateOfferForm({
         </div>
 
         {customerMode === "existing" ? (
-          <Field id="customer-id" label="Existing customer" error={errors.customer}>
+          <Field id="customer-id" label="Existing customer" required error={errors.customer}>
             {(controlProps) => (
               <Select
                 value={customerId}
@@ -249,7 +335,7 @@ function CreateOfferForm({
           </Field>
         ) : (
           <>
-            <Field id="customer-name" label="Customer name" error={errors.customer}>
+            <Field id="customer-name" label="Customer name" required error={errors.customer}>
               {(controlProps) => (
                 <Input
                   {...controlProps}
@@ -298,90 +384,23 @@ function CreateOfferForm({
         )}
       </fieldset>
 
-      <Field id="base-scope" label="Original scope" error={errors.scope}>
-        {(controlProps) => (
-          <Textarea
-            {...controlProps}
-            name="base_scope"
-            value={baseScope}
-            onChange={(event) => {
-              setBaseScope(event.target.value);
-              clearError("scope");
-            }}
-            rows={5}
-          />
-        )}
-      </Field>
-
       <fieldset className="space-y-4 rounded-lg border p-4">
-        <legend className="px-1 text-sm font-semibold">Start work items from a trade template</legend>
-        <p className="text-muted-foreground text-sm">
-          Templates fill item defaults. Starter prompts have no market rates; confirm every rate and effort assumption.
-        </p>
-        {items.map((item, index) => {
-          const selectedId = item.id ? (itemTemplateIds[item.id] ?? "") : "";
-          const selectedTemplate = templates.find((template) => template.id === selectedId);
-          return (
-            <div key={item.id ?? `template-item-${index}`} className="space-y-2">
-              <Field id={`item-${index}-template`} label={`Template for item ${index + 1}`}>
-                {(controlProps) => (
-                  <select
-                    {...controlProps}
-                    className="border-input bg-background h-10 w-full rounded-md border px-3 text-sm"
-                    value={selectedId}
-                    onChange={(event) => {
-                      applyItemTemplate(index, event.target.value);
-                    }}
-                  >
-                    <option value="">Choose a template (optional)</option>
-                    <optgroup label="Starter prompts">
-                      {templates
-                        .filter((template) => template.contractorId === null)
-                        .map((template) => (
-                          <option key={template.id} value={template.id}>
-                            {template.trade} · {template.name}
-                          </option>
-                        ))}
-                    </optgroup>
-                    {templates.some((template) => template.contractorId !== null) ? (
-                      <optgroup label="My saved templates">
-                        {templates
-                          .filter((template) => template.contractorId !== null)
-                          .map((template) => (
-                            <option key={template.id} value={template.id}>
-                              {template.trade} · {template.name}
-                            </option>
-                          ))}
-                      </optgroup>
-                    ) : null}
-                  </select>
-                )}
-              </Field>
-              {selectedTemplate ? (
-                <div className="bg-secondary space-y-1 rounded-md p-3 text-sm" role="status">
-                  {selectedTemplate.prompts.map((prompt) => (
-                    <p key={prompt}>{prompt}</p>
-                  ))}
-                  {selectedTemplate.sellingRateMinor === null || selectedTemplate.laborHoursPerUnit === null ? (
-                    <p>Enter or confirm the selling rate and person-hours before saving this offer.</p>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
-      </fieldset>
-      <OfferItemsEditor
-        items={items}
-        onChange={(nextItems) => {
-          setItems(nextItems);
-          setItemError(null);
-        }}
-        error={itemError}
-      />
-
-      <div className="grid gap-6 sm:grid-cols-2">
-        <Field id="base-deadline" label="Deadline" error={errors.deadline}>
+        <legend className="px-1 text-sm font-semibold">Scope and deadline</legend>
+        <Field id="base-scope" label="Original scope" required error={errors.scope}>
+          {(controlProps) => (
+            <Textarea
+              {...controlProps}
+              name="base_scope"
+              value={baseScope}
+              onChange={(event) => {
+                setBaseScope(event.target.value);
+                clearError("scope");
+              }}
+              rows={5}
+            />
+          )}
+        </Field>
+        <Field id="base-deadline" label="Deadline" required error={errors.deadline}>
           {(controlProps) => (
             <Input
               {...controlProps}
@@ -396,16 +415,32 @@ function CreateOfferForm({
             />
           )}
         </Field>
-      </div>
+      </fieldset>
 
-      {serverError ? (
-        <p
-          className="border-destructive/30 bg-destructive/10 text-destructive rounded-md border px-4 py-3 text-sm"
-          role="alert"
-        >
-          {serverError}
+      <div className="space-y-3">
+        <p className="text-muted-foreground text-sm">
+          Templates fill defaults for one item at a time. Starter prompts have no market rates; confirm each rate and
+          effort assumption.
         </p>
-      ) : null}
+        <OfferItemsEditor
+          items={items}
+          onChange={(nextItems) => {
+            setItems(nextItems);
+            setItemError(null);
+          }}
+          error={itemError}
+          requiredFields
+          stableItemIds
+          templates={templates}
+          selectedTemplateIds={itemTemplateIds}
+          pendingTemplate={pendingTemplate}
+          onTemplateSelect={applyItemTemplate}
+          onConfirmTemplate={confirmTemplate}
+          onCancelTemplate={() => {
+            setPendingTemplate(null);
+          }}
+        />
+      </div>
 
       <Button type="submit" size="lg" className="w-full sm:w-auto">
         Create offer

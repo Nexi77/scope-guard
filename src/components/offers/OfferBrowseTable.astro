@@ -1,0 +1,290 @@
+---
+import OfferActionsMenu from "@/components/offers/OfferActionsMenu";
+import OfferPagination from "@/components/offers/OfferPagination.astro";
+
+interface CustomerRow {
+  customer_id: string;
+  name: string;
+  offer_count: number;
+  last_activity: string | null;
+}
+
+interface OfferRow {
+  offer_id: string;
+  original_scope: string;
+  status: string;
+  current_amount_minor: string;
+  current_deadline: string;
+  created_at: string;
+}
+
+interface Props {
+  customers: CustomerRow[];
+  offers: OfferRow[];
+  selectedCustomer: { id: string; name: string } | null;
+  customerId: string;
+  selectedCustomerError: boolean;
+  offersError: boolean;
+  offerIdsWithHistory: Set<string>;
+  query: string;
+  customerPage: number;
+  customerPageCount: number;
+  customerRangeSummary: string;
+  offerPage: number;
+  offerPageCount: number;
+  offerRangeSummary: string;
+  customerPageHref: (page: number) => string;
+  offerPageHref: (page: number) => string;
+  formatPrice: (amount: string) => string;
+  dateOnly: (value: string | null) => string;
+  scopeExcerpt: (value: string) => string;
+}
+
+const {
+  customers,
+  offers,
+  selectedCustomer,
+  customerId,
+  selectedCustomerError,
+  offersError,
+  offerIdsWithHistory,
+  query,
+  customerPage,
+  customerPageCount,
+  customerRangeSummary,
+  offerPage,
+  offerPageCount,
+  offerRangeSummary,
+  customerPageHref,
+  offerPageHref,
+  formatPrice,
+  dateOnly,
+  scopeExcerpt,
+} = Astro.props;
+---
+
+<section aria-labelledby="customer-list-title">
+  <h2 id="customer-list-title" class="mb-3 text-lg font-semibold">
+    Customers
+  </h2>
+  {customerPageCount > 1 ? (
+    <OfferPagination
+      entity="customers"
+      position="before"
+      summary={customerRangeSummary}
+      page={customerPage}
+      pageCount={customerPageCount}
+      previousHref={customerPage > 1 ? customerPageHref(customerPage - 1) : undefined}
+      nextHref={customerPage < customerPageCount ? customerPageHref(customerPage + 1) : undefined}
+    />
+  ) : null}
+  <table class="bg-card w-full table-fixed border-separate border-spacing-0 rounded-xl border max-md:block">
+    <thead class="bg-muted/50 max-md:sr-only">
+      <tr>
+        <th scope="col" class="w-2/5 px-4 py-3 text-left text-sm font-medium">
+          Customer
+        </th>
+        <th scope="col" class="w-1/6 px-4 py-3 text-left text-sm font-medium">
+          Offer count
+        </th>
+        <th scope="col" class="w-1/4 px-4 py-3 text-left text-sm font-medium">
+          Last activity
+        </th>
+        <th scope="col" class="px-4 py-3 text-right text-sm font-medium">
+          Actions
+        </th>
+      </tr>
+    </thead>
+    <tbody class="max-md:block">
+      {customers.map((customer) => {
+        const expanded = selectedCustomer?.id === customer.customer_id;
+        return (
+          <>
+            <tr
+              data-customer-id={customer.customer_id}
+              class:list={["hover:bg-accent/50 max-md:block max-md:border-b max-md:p-4", expanded && "bg-secondary/50"]}
+            >
+              <th
+                scope="row"
+                class="border-border border-t px-4 py-4 text-left text-sm font-semibold break-words max-md:block max-md:border-0 max-md:p-0"
+              >
+                {customer.name}
+              </th>
+              <td class="border-border border-t px-4 py-4 text-sm max-md:block max-md:border-0 max-md:px-0 max-md:py-1">
+                <span class="text-muted-foreground md:hidden">Offers: </span>
+                {customer.offer_count}
+              </td>
+              <td class="border-border border-t text-muted-foreground px-4 py-4 text-sm max-md:block max-md:border-0 max-md:p-0">
+                <span class="md:hidden">Last activity: </span>
+                {dateOnly(customer.last_activity)}
+              </td>
+              <td class="border-border border-t px-4 py-3 text-right max-md:block max-md:border-0 max-md:px-0 max-md:pt-3 max-md:text-left">
+                <form method="GET" action="/offers" data-offer-browse-form>
+                  {query && <input type="hidden" name="q" value={query} />}
+                  {customerPage > 1 && <input type="hidden" name="page" value={customerPage} />}
+                  <button
+                    type="submit"
+                    name={expanded ? undefined : "customer"}
+                    value={expanded ? undefined : customer.customer_id}
+                    aria-expanded={expanded}
+                    aria-controls={expanded ? "offer-group" : undefined}
+                    class="border-input bg-background hover:bg-accent focus-visible:ring-ring inline-flex min-h-9 items-center rounded-md border px-3 text-sm font-medium focus-visible:ring-2 focus-visible:outline-none"
+                  >
+                    {expanded ? "Hide offers" : "View offers"}
+                    <span class="sr-only"> for {customer.name}</span>
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {expanded && (
+              <tr class="max-md:block max-md:w-full">
+                <td
+                  colspan="4"
+                  class="bg-secondary border-primary box-border w-full border-t border-l-4 p-4 sm:p-6 max-md:block"
+                >
+                  <section id="offer-group" aria-labelledby="offer-list-title" aria-live="polite">
+                    {offersError ? (
+                      <p
+                        class="border-destructive/30 bg-destructive/10 text-destructive rounded-md border p-4"
+                        role="alert"
+                      >
+                        Offers could not be loaded. Refresh the page and try again.
+                      </p>
+                    ) : (
+                      <>
+                        <h2 id="offer-list-title" tabindex="-1" class="scroll-mt-6 mb-3 text-lg font-semibold">
+                          Offers for {selectedCustomer.name}
+                        </h2>
+                        <OfferPagination
+                          entity="offers"
+                          position="before"
+                          summary={offerRangeSummary}
+                          page={offerPage}
+                          pageCount={offerPageCount}
+                          previousHref={offerPage > 1 ? offerPageHref(offerPage - 1) : undefined}
+                          nextHref={offerPage < offerPageCount ? offerPageHref(offerPage + 1) : undefined}
+                        />
+                        {offers.length === 0 ? (
+                          <p class="bg-card text-muted-foreground rounded-lg border p-4">
+                            No offers for this customer yet.
+                          </p>
+                        ) : (
+                          <table class="bg-card w-full table-fixed border-separate border-spacing-0 rounded-lg border max-md:block">
+                            <thead class="bg-muted/50 max-md:sr-only">
+                              <tr>
+                                <th scope="col" class="w-1/3 px-3 py-2 text-left text-xs font-medium">
+                                  Scope
+                                </th>
+                                <th scope="col" class="px-3 py-2 text-left text-xs font-medium">
+                                  Status
+                                </th>
+                                <th scope="col" class="px-3 py-2 text-left text-xs font-medium">
+                                  Current amount
+                                </th>
+                                <th scope="col" class="px-3 py-2 text-left text-xs font-medium">
+                                  Deadline
+                                </th>
+                                <th scope="col" class="px-3 py-2 text-left text-xs font-medium">
+                                  Created
+                                </th>
+                                <th scope="col" class="px-3 py-2 text-right text-xs font-medium">
+                                  Actions
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody class="max-md:block">
+                              {offers.map((offer) => (
+                                <tr
+                                  data-offer-id={offer.offer_id}
+                                  data-can-edit={offer.status === "pending" && !offerIdsWithHistory.has(offer.offer_id)}
+                                  data-can-propose-change={offer.status === "accepted" || offer.status === "agreed"}
+                                  class="hover:bg-accent/50 max-md:block max-md:border-b max-md:p-4"
+                                >
+                                  <th
+                                    scope="row"
+                                    class="border-border border-t px-3 py-3 text-left text-sm font-medium break-words max-md:block max-md:border-0 max-md:p-0"
+                                  >
+                                    <a
+                                      href={`/offers/${encodeURIComponent(offer.offer_id)}`}
+                                      class="text-primary hover:text-primary/80 focus-visible:ring-ring line-clamp-2 underline underline-offset-4 focus-visible:ring-2 focus-visible:outline-none"
+                                    >
+                                      {scopeExcerpt(offer.original_scope)}
+                                    </a>
+                                  </th>
+                                  <td class="border-border border-t px-3 py-3 text-sm capitalize max-md:block max-md:border-0 max-md:px-0 max-md:py-1">
+                                    <span class="text-muted-foreground md:hidden">Status: </span>
+                                    {offer.status}
+                                  </td>
+                                  <td class="border-border border-t px-3 py-3 text-sm max-md:block max-md:border-0 max-md:p-0">
+                                    <span class="text-muted-foreground md:hidden">Current amount: </span>
+                                    {formatPrice(offer.current_amount_minor)}
+                                  </td>
+                                  <td class="border-border border-t px-3 py-3 text-sm max-md:block max-md:border-0 max-md:px-0 max-md:py-1">
+                                    <span class="text-muted-foreground md:hidden">Deadline: </span>
+                                    {dateOnly(offer.current_deadline)}
+                                  </td>
+                                  <td class="border-border border-t px-3 py-3 text-sm max-md:block max-md:border-0 max-md:p-0">
+                                    <span class="text-muted-foreground md:hidden">Created: </span>
+                                    {dateOnly(offer.created_at)}
+                                  </td>
+                                  <td class="border-border border-t px-3 py-2 text-right max-md:block max-md:border-0 max-md:px-0 max-md:pt-3 max-md:text-left">
+                                    <OfferActionsMenu
+                                      offerId={offer.offer_id}
+                                      includeNavigation
+                                      canEdit={offer.status === "pending" && !offerIdsWithHistory.has(offer.offer_id)}
+                                      canProposeChange={offer.status === "accepted" || offer.status === "agreed"}
+                                      client:load
+                                    />
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                        {offerPageCount > 1 ? (
+                          <OfferPagination
+                            entity="offers"
+                            position="after"
+                            summary={offerRangeSummary}
+                            page={offerPage}
+                            pageCount={offerPageCount}
+                            previousHref={offerPage > 1 ? offerPageHref(offerPage - 1) : undefined}
+                            nextHref={offerPage < offerPageCount ? offerPageHref(offerPage + 1) : undefined}
+                          />
+                        ) : null}
+                      </>
+                    )}
+                  </section>
+                </td>
+              </tr>
+            )}
+          </>
+        );
+      })}
+    </tbody>
+  </table>
+  <OfferPagination
+    entity="customers"
+    position="after"
+    summary={customerRangeSummary}
+    page={customerPage}
+    pageCount={customerPageCount}
+    previousHref={customerPage > 1 ? customerPageHref(customerPage - 1) : undefined}
+    nextHref={customerPage < customerPageCount ? customerPageHref(customerPage + 1) : undefined}
+  />
+  {customerId &&
+  (selectedCustomerError ||
+    !selectedCustomer ||
+    !customers.some((customer) => customer.customer_id === selectedCustomer.id)) ? (
+    <div class="bg-card mt-4 rounded-xl border p-5" role={selectedCustomerError ? "alert" : undefined}>
+      <h2 class="text-lg font-semibold">
+        {selectedCustomerError ? "Customer could not be loaded" : "Customer unavailable"}
+      </h2>
+      <p class="text-muted-foreground mt-2">
+        {selectedCustomerError
+          ? "Refresh the page or select a customer from the list."
+          : "This customer is unavailable on this page. Choose a customer shown above."}
+      </p>
+    </div>
+  ) : null}
+</section>
