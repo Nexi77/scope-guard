@@ -287,6 +287,70 @@ async function run() {
     pinHash: null,
   });
 
+  const { data: originalShareState, error: originalShareStateError } = await admin
+    .from("offers")
+    .select("share_token, share_link_revoked_at, pin_hash")
+    .eq("id", offerA.id)
+    .single();
+  expectNoError(originalShareStateError, "read initial share lifecycle state");
+  await expectError(
+    anonymous.rpc("manage_shared_offer_access", { p_offer_id: offerA.id, p_action: "revoke" }),
+    "anonymous share lifecycle access",
+  );
+  await expectError(
+    contractorB.client.rpc("manage_shared_offer_access", { p_offer_id: offerA.id, p_action: "revoke" }),
+    "foreign contractor share lifecycle access",
+  );
+  await expectError(
+    contractorA.client.rpc("manage_shared_offer_access", { p_offer_id: offerA.id, p_action: "reshare" }),
+    "re-share an active link",
+  );
+  const { data: revokeResult, error: revokeError } = await contractorA.client.rpc("manage_shared_offer_access", {
+    p_offer_id: offerA.id,
+    p_action: "revoke",
+  });
+  expectNoError(revokeError, "revoke an owned share link");
+  expect(revokeResult?.revoked === true && !("share_token" in revokeResult), "revoke result must omit token material");
+  const { error: repeatRevokeError } = await contractorA.client.rpc("manage_shared_offer_access", {
+    p_offer_id: offerA.id,
+    p_action: "revoke",
+  });
+  expectNoError(repeatRevokeError, "repeat share link revocation");
+  const { data: invalidatedRead, error: invalidatedReadError } = await anonymous.rpc("get_shared_offer", {
+    p_share_token: originalShareState.share_token,
+  });
+  expectNoError(invalidatedReadError, "read revoked original share token");
+  expect(invalidatedRead === null, "revocation must immediately invalidate the original token");
+  const { data: rotateResult, error: rotateError } = await contractorA.client.rpc("manage_shared_offer_access", {
+    p_offer_id: offerA.id,
+    p_action: "reshare",
+  });
+  expectNoError(rotateError, "re-share a revoked offer link");
+  expect(
+    rotateResult?.revoked === false &&
+      typeof rotateResult.share_token === "string" &&
+      rotateResult.share_token !== originalShareState.share_token,
+    "re-share must issue a fresh token only after revocation",
+  );
+  offerA.share_token = rotateResult.share_token;
+  const { data: rotatedRead, error: rotatedReadError } = await anonymous.rpc("get_shared_offer", {
+    p_share_token: offerA.share_token,
+  });
+  expectNoError(rotatedReadError, "read replacement share token");
+  expect(rotatedRead?.id === offerA.id, "replacement token must read the same offer");
+  const { data: finalShareState, error: finalShareStateError } = await admin
+    .from("offers")
+    .select("share_token, share_link_revoked_at, pin_hash")
+    .eq("id", offerA.id)
+    .single();
+  expectNoError(finalShareStateError, "read rotated share lifecycle state");
+  expect(
+    finalShareState.share_token === offerA.share_token &&
+      finalShareState.share_link_revoked_at === null &&
+      finalShareState.pin_hash === originalShareState.pin_hash,
+    "rotation must activate only the fresh token and preserve the offer PIN hash",
+  );
+
   const newCustomerName = `New customer ${runId}`;
   const newOfferRequest = {
     p_customer_id: null,

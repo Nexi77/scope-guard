@@ -2,6 +2,7 @@
 import { AccountMenu } from "@/components/dashboard/AccountMenu";
 import ContractorNavigation from "@/components/dashboard/ContractorNavigation.astro";
 import ManageOfferPin from "@/components/offers/ManageOfferPin";
+import ManageOfferShare from "@/components/offers/ManageOfferShare";
 import OfferDetailNav from "@/components/offers/OfferDetailNav.astro";
 import Layout from "@/layouts/Layout.astro";
 import { loadContractorOfferView } from "@/lib/contractor-offer-view";
@@ -15,7 +16,9 @@ const result = await loadContractorOfferView(Astro.request.headers, Astro.cookie
   effectiveItems: true,
   templates: true,
   pin: true,
+  share: true,
 });
+Astro.response.headers.set("Cache-Control", "no-store");
 const view = result.kind === "ok" ? result.view : null;
 const offer = view?.offer ?? null;
 if (!view) Astro.response.status = 404;
@@ -237,6 +240,17 @@ const formatDate = (date: string) =>
             </h2>
             <p class="text-muted-foreground mt-1 text-sm">Manage the six-digit PIN used for customer decisions.</p>
             <ManageOfferPin offerId={offer.id} configured={view.pinConfigured} client:load />
+            <h3 class="mt-5 text-base font-semibold">Shared offer link</h3>
+            <p class="text-muted-foreground mt-1 text-sm">
+              Anyone with this link can view this offer. It does not allow decisions.
+            </p>
+            <ManageOfferShare
+              offerId={offer.id}
+              token={offer.share_link_revoked_at ? "" : (offer.share_token ?? "")}
+              revoked={offer.share_link_revoked_at !== null && offer.share_link_revoked_at !== undefined}
+              origin={Astro.url.origin}
+              client:load
+            />
           </section>
         </>
       )}
