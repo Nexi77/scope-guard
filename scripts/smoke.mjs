@@ -214,6 +214,9 @@ let foreignCustomerId = null;
 let offerId = null;
 let foreignOfferId = null;
 let firstGeneratedPin = null;
+let originalOwnerShareToken = null;
+let replacementOwnerShareToken = null;
+let foreignShareToken = null;
 
 const steps = [
   ["root redirects to dashboard", () => request("/"), { status: 302, location: "/dashboard" }],
@@ -540,6 +543,107 @@ const steps = [
     },
   ],
   [
+    "owner share controls revoke and rotate links with no-store responses",
+    async () => {
+      const { data: before, error: beforeError } = await admin
+        .from("offers")
+        .select("share_token, pin_hash")
+        .eq("id", offerId)
+        .single();
+      if (beforeError || !before?.share_token) return { status: 0, body: "Could not read initial share state." };
+      originalOwnerShareToken = before.share_token;
+      const pageBefore = await request(`/offers/${offerId}`);
+      const anonymous = await request(
+        `/api/offers/${offerId}/share`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "revoke" }),
+        },
+        new Map(),
+      );
+      const malformed = await request("/api/offers/not-a-uuid/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "revoke" }),
+      });
+      const invalidAction = await request(`/api/offers/${offerId}/share`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reset" }),
+      });
+      const crossOrigin = await request(`/api/offers/${offerId}/share`, {
+        method: "POST",
+        headers: { Origin: "https://attacker.example", "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "revoke" }),
+      });
+      const revoked = await request(`/api/offers/${offerId}/share`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "revoke" }),
+      });
+      const oldRead = await sharedClient.rpc("get_shared_offer", { p_share_token: originalOwnerShareToken });
+      const rotated = await request(`/api/offers/${offerId}/share`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reshare" }),
+      });
+      let rotatedBody;
+      try {
+        rotatedBody = JSON.parse(rotated.body);
+      } catch {
+        rotatedBody = {};
+      }
+      replacementOwnerShareToken = rotatedBody.share_token;
+      const newRead = replacementOwnerShareToken
+        ? await sharedClient.rpc("get_shared_offer", { p_share_token: replacementOwnerShareToken })
+        : { data: null, error: new Error("Missing replacement token") };
+      const pageAfter = await request(`/offers/${offerId}`);
+      const { data: after, error: afterError } = await admin
+        .from("offers")
+        .select("share_token, share_link_revoked_at, pin_hash")
+        .eq("id", offerId)
+        .single();
+      const apiNoStore =
+        revoked.headers.get("cache-control") === "no-store" && rotated.headers.get("cache-control") === "no-store";
+      const validLifecycle =
+        revoked.status === 200 &&
+        rotated.status === 200 &&
+        replacementOwnerShareToken &&
+        replacementOwnerShareToken !== originalOwnerShareToken &&
+        oldRead.data === null &&
+        !oldRead.error &&
+        newRead.data?.id === offerId &&
+        !newRead.error &&
+        !afterError &&
+        after.share_token === replacementOwnerShareToken &&
+        after.share_link_revoked_at === null &&
+        after.pin_hash === before.pin_hash &&
+        apiNoStore &&
+        pageBefore.status === 200 &&
+        pageBefore.headers.get("cache-control") === "no-store" &&
+        pageBefore.body.includes(originalOwnerShareToken) &&
+        pageBefore.body.includes("Revoke link") &&
+        pageAfter.status === 200 &&
+        pageAfter.headers.get("cache-control") === "no-store" &&
+        pageAfter.body.includes(replacementOwnerShareToken) &&
+        !pageAfter.body.includes(originalOwnerShareToken) &&
+        pageAfter.body.includes("Revoke link");
+      return {
+        status:
+          validLifecycle &&
+          anonymous.status === 401 &&
+          malformed.status === 404 &&
+          invalidAction.status === 400 &&
+          crossOrigin.status === 403
+            ? 200
+            : 500,
+        body: `lifecycle:${validLifecycle} anonymous:${anonymous.status} malformed:${malformed.status} invalid:${invalidAction.status} cross-origin:${crossOrigin.status}`,
+      };
+    },
+    { status: 200, body: "lifecycle:true anonymous:401 malformed:404 invalid:400 cross-origin:403" },
+  ],
+  [
     "anonymous PIN generation is rejected",
     () => request(`/api/offers/${offerId}/pin`, { method: "POST" }, new Map()),
     { status: 401, body: "Sign in" },
@@ -638,6 +742,14 @@ const steps = [
         foreignJar,
       );
       foreignOfferId = offerIdFromLocation(creation.location);
+      if (foreignOfferId) {
+        const { data: foreignOffer } = await admin
+          .from("offers")
+          .select("share_token")
+          .eq("id", foreignOfferId)
+          .single();
+        foreignShareToken = foreignOffer?.share_token ?? null;
+      }
       const foreignForm = await request("/offers/new", {}, foreignJar);
       foreignCustomerId = customerIdFromPage(foreignForm.body, foreignCustomerName);
       return { ...creation, body: foreignCustomerId ? "foreign-customer-created" : creation.body };
@@ -646,6 +758,77 @@ const steps = [
       status: 302,
       locationPattern: /^\/offers\/[0-9a-f-]{36}$/i,
       body: "foreign-customer-created",
+    },
+  ],
+  [
+    "shared offer page is available anonymously and to a signed-in contractor without private data",
+    async () => {
+      if (!replacementOwnerShareToken) return { status: 0, body: "Missing active share token." };
+      const anonymous = await request(`/shared/${replacementOwnerShareToken}`, {}, new Map());
+      const signedIn = await request(`/shared/${replacementOwnerShareToken}`);
+      return {
+        ...anonymous,
+        signedIn,
+        privateFields: ["pin_hash", "labor_hours_per_unit", "price_breakdown", "owner_id", "share_token"].filter(
+          (field) => anonymous.body.toLowerCase().includes(field),
+        ),
+      };
+    },
+    {
+      status: 200,
+      body: ["Shared offer", "Proposed total", "Smoke-tested original scope", "Status: Awaiting customer decision"],
+      absentBody: [
+        "Revoke link",
+        "Accept offer",
+        "Reject offer",
+        "PIN",
+        "labor_hours_per_unit",
+        "price_breakdown",
+        "pin_hash",
+        "share_token",
+      ],
+      check: (actual) =>
+        actual.signedIn.status === 200 &&
+        actual.headers.get("cache-control") === "no-store" &&
+        actual.headers.get("referrer-policy") === "no-referrer" &&
+        actual.body.includes('name="robots" content="noindex, nofollow"') &&
+        actual.privateFields.length === 0,
+    },
+  ],
+  [
+    "shared offer unavailable tokens have identical public response and foreign offers stay isolated",
+    async () => {
+      const malformed = await request("/shared/not-a-token", {}, new Map());
+      const unknown = await request("/shared/00000000-0000-4000-8000-000000000000", {}, new Map());
+      const revoked = originalOwnerShareToken
+        ? await request(`/shared/${originalOwnerShareToken}`, {}, new Map())
+        : null;
+      const foreign = foreignShareToken ? await request(`/shared/${foreignShareToken}`, {}, new Map()) : null;
+      const current = replacementOwnerShareToken
+        ? await request(`/shared/${replacementOwnerShareToken}`, {}, new Map())
+        : null;
+      const unavailable = [malformed, unknown, revoked];
+      return {
+        ...unknown,
+        unavailable,
+        foreign,
+        current,
+        body: `${unknown.body} malformed:${malformed.status}:${malformed.body.includes("Offer unavailable")} revoked:${revoked?.status}:${revoked?.body.includes("Offer unavailable")} foreign:${foreign?.status}:${foreign?.body.includes(foreignScope)}:other:${foreign?.body.includes("Smoke-tested original scope")}`,
+      };
+    },
+    {
+      status: 404,
+      body: ["Offer unavailable", "malformed:404:true", "revoked:404:true", "foreign:200:true:other:false"],
+      absentBody: ["Smoke-tested original scope"],
+      check: (actual) =>
+        actual.unavailable.every(
+          (response) => response.status === 404 && response.body.includes("Offer unavailable"),
+        ) &&
+        new Set(actual.unavailable.map((response) => response.body)).size === 1 &&
+        actual.foreign?.status === 200 &&
+        actual.foreign.body.includes(foreignScope) &&
+        !actual.foreign.body.includes("Smoke-tested original scope") &&
+        actual.current?.status === 200,
     },
   ],
   [
@@ -671,6 +854,19 @@ const steps = [
       return request(`/api/offers/${foreignOfferId}/pin`, { method: "POST" });
     },
     { status: 404, body: "Offer is unavailable", absentBody: ["pin_hash", "share_token"] },
+  ],
+  [
+    "foreign contractor share controls are unavailable",
+    async () => {
+      const page = await request(`/offers/${foreignOfferId}`);
+      const api = await request(`/api/offers/${foreignOfferId}/share`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "revoke" }),
+      });
+      return { ...api, body: `${api.body} detail:${page.status}:${page.body.includes("Offer unavailable")}` };
+    },
+    { status: 404, body: ["Offer is unavailable", "detail:404:true"], absentBody: ["share_token", "pin_hash"] },
   ],
   [
     "history route keeps foreign and unknown offers unavailable",
@@ -1238,6 +1434,29 @@ const steps = [
           )
         );
       },
+    },
+  ],
+  [
+    "public shared view separates agreed amount from pending proposal impact",
+    async () => {
+      if (!reusedShareToken) return { status: 0, body: "Missing accepted offer share token." };
+      const anonymous = await request(`/shared/${reusedShareToken}`, {}, new Map());
+      const signedIn = await request(`/shared/${reusedShareToken}`);
+      return { ...anonymous, signedIn, body: `${anonymous.body} signed-in-status:${signedIn.status}` };
+    },
+    {
+      status: 200,
+      body: [
+        "Current total",
+        "Revised smoke-tested scope",
+        "Pending proposal",
+        "Add one smoke-tested work item unit",
+        "not included in the current total",
+        "Proposed price impact",
+      ],
+      absentBody: ["Accept offer", "Reject offer", "PIN", "price_breakdown", "labor_hours_per_unit"],
+      check: (actual) =>
+        actual.body.includes("signed-in-status:200") && (actual.body.match(/3,00 zł/g) ?? []).length >= 2,
     },
   ],
   [

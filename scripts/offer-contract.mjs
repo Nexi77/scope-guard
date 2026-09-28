@@ -244,7 +244,7 @@ async function seedOffer({
   return { ...offer, customerId: selectedCustomerId };
 }
 
-async function seedChange(client, contractorId, offerId, description, priceDeltaMinor) {
+async function seedChange(contractorId, offerId, description, priceDeltaMinor) {
   const { data, error } = await admin
     .from("offer_changes")
     .insert({
@@ -286,6 +286,70 @@ async function run() {
     name: "PIN management",
     pinHash: null,
   });
+
+  const { data: originalShareState, error: originalShareStateError } = await admin
+    .from("offers")
+    .select("share_token, share_link_revoked_at, pin_hash")
+    .eq("id", offerA.id)
+    .single();
+  expectNoError(originalShareStateError, "read initial share lifecycle state");
+  await expectError(
+    anonymous.rpc("manage_shared_offer_access", { p_offer_id: offerA.id, p_action: "revoke" }),
+    "anonymous share lifecycle access",
+  );
+  await expectError(
+    contractorB.client.rpc("manage_shared_offer_access", { p_offer_id: offerA.id, p_action: "revoke" }),
+    "foreign contractor share lifecycle access",
+  );
+  await expectError(
+    contractorA.client.rpc("manage_shared_offer_access", { p_offer_id: offerA.id, p_action: "reshare" }),
+    "re-share an active link",
+  );
+  const { data: revokeResult, error: revokeError } = await contractorA.client.rpc("manage_shared_offer_access", {
+    p_offer_id: offerA.id,
+    p_action: "revoke",
+  });
+  expectNoError(revokeError, "revoke an owned share link");
+  expect(revokeResult?.revoked === true && !("share_token" in revokeResult), "revoke result must omit token material");
+  const { error: repeatRevokeError } = await contractorA.client.rpc("manage_shared_offer_access", {
+    p_offer_id: offerA.id,
+    p_action: "revoke",
+  });
+  expectNoError(repeatRevokeError, "repeat share link revocation");
+  const { data: invalidatedRead, error: invalidatedReadError } = await anonymous.rpc("get_shared_offer", {
+    p_share_token: originalShareState.share_token,
+  });
+  expectNoError(invalidatedReadError, "read revoked original share token");
+  expect(invalidatedRead === null, "revocation must immediately invalidate the original token");
+  const { data: rotateResult, error: rotateError } = await contractorA.client.rpc("manage_shared_offer_access", {
+    p_offer_id: offerA.id,
+    p_action: "reshare",
+  });
+  expectNoError(rotateError, "re-share a revoked offer link");
+  expect(
+    rotateResult?.revoked === false &&
+      typeof rotateResult.share_token === "string" &&
+      rotateResult.share_token !== originalShareState.share_token,
+    "re-share must issue a fresh token only after revocation",
+  );
+  offerA.share_token = rotateResult.share_token;
+  const { data: rotatedRead, error: rotatedReadError } = await anonymous.rpc("get_shared_offer", {
+    p_share_token: offerA.share_token,
+  });
+  expectNoError(rotatedReadError, "read replacement share token");
+  expect(rotatedRead?.id === offerA.id, "replacement token must read the same offer");
+  const { data: finalShareState, error: finalShareStateError } = await admin
+    .from("offers")
+    .select("share_token, share_link_revoked_at, pin_hash")
+    .eq("id", offerA.id)
+    .single();
+  expectNoError(finalShareStateError, "read rotated share lifecycle state");
+  expect(
+    finalShareState.share_token === offerA.share_token &&
+      finalShareState.share_link_revoked_at === null &&
+      finalShareState.pin_hash === originalShareState.pin_hash,
+    "rotation must activate only the fresh token and preserve the offer PIN hash",
+  );
 
   const newCustomerName = `New customer ${runId}`;
   const newOfferRequest = {
@@ -358,7 +422,7 @@ async function run() {
     name: "pending offer with change history",
     pinHash,
   });
-  await seedChange(contractorA.client, contractorA.id, historyLockedOffer.id, "Recorded history lock", 100);
+  await seedChange(contractorA.id, historyLockedOffer.id, "Recorded history lock", 100);
   const historyLockError = await expectError(
     contractorA.client.rpc("replace_pending_offer_revision", {
       p_offer_id: historyLockedOffer.id,
@@ -1185,27 +1249,9 @@ async function run() {
   expectNoError(rollbackCustomersError, "read customers after failed creation");
   expect(rollbackCustomers.length === 0, "failed creation must not leave a new customer behind");
 
-  const acceptedChange = await seedChange(
-    contractorA.client,
-    contractorA.id,
-    offerA.id,
-    "Accepted scope change",
-    1_500,
-  );
-  const protectedPendingChange = await seedChange(
-    contractorA.client,
-    contractorA.id,
-    revisionOffer.id,
-    "Protected pending change",
-    2_500,
-  );
-  const rejectedChange = await seedChange(
-    contractorB.client,
-    contractorB.id,
-    offerB.id,
-    "Rejected scope change",
-    2_000,
-  );
+  const acceptedChange = await seedChange(contractorA.id, offerA.id, "Accepted scope change", 1_500);
+  const protectedPendingChange = await seedChange(contractorA.id, revisionOffer.id, "Protected pending change", 2_500);
+  const rejectedChange = await seedChange(contractorB.id, offerB.id, "Rejected scope change", 2_000);
 
   for (const [client, offer, label] of [
     [contractorA.client, offerA, "accepted-change offer"],
@@ -1338,13 +1384,7 @@ async function run() {
   );
 
   async function verifyPinWithDecision(pin, context, shouldSucceed) {
-    const changeId = await seedChange(
-      contractorA.client,
-      contractorA.id,
-      pinOffer.id,
-      `${context} verification change`,
-      100,
-    );
+    const changeId = await seedChange(contractorA.id, pinOffer.id, `${context} verification change`, 100);
     const request = anonymous.rpc("decide_shared_offer_change", {
       p_share_token: pinOffer.share_token,
       p_pin: pin,
@@ -1704,7 +1744,7 @@ async function run() {
     allBrowseRows.find((row) => row.offer_id === offerA.id)?.current_amount_minor === "11500",
     "current amount must include accepted changes and remain exact minor-unit text",
   );
-  const pendingChange = await seedChange(contractorA.client, contractorA.id, offerA.id, "Pending browse change", 3_000);
+  const pendingChange = await seedChange(contractorA.id, offerA.id, "Pending browse change", 3_000);
   expect(pendingChange, "pending change fixture must be created");
   const { error: rejectedBrowseChangeError } = await anonymous.rpc("decide_shared_offer_change", {
     p_share_token: offerA.share_token,
@@ -1766,7 +1806,6 @@ async function run() {
     pinHash,
   });
   const lockDecisionChangeId = await seedChange(
-    contractorA.client,
     contractorA.id,
     lockDecisionOffer.id,
     "Change waiting on offer lock",

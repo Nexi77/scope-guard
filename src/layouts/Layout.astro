@@ -3,9 +3,10 @@ import "../styles/global.css";
 
 interface Props {
   title?: string;
+  noIndex?: boolean;
 }
 
-const { title = "ScopeGuard" } = Astro.props;
+const { title = "ScopeGuard", noIndex = false } = Astro.props;
 ---
 
 <!doctype html>
@@ -15,6 +16,7 @@ const { title = "ScopeGuard" } = Astro.props;
     <meta name="viewport" content="width=device-width" />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <title>{title}</title>
+    {noIndex && <meta name="robots" content="noindex, nofollow" />}
     <script is:inline>
       const savedTheme = localStorage.getItem("scopeguard-theme");
       document.documentElement.classList.toggle("dark", savedTheme === "dark");
