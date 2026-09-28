@@ -227,6 +227,8 @@ let publishedChangeId = null;
 let reusedOfferPin = null;
 let reusedShareToken = null;
 let publishableChange = null;
+let replacedSmokeChangeId = null;
+let displayedChangeState = null;
 let foreignCustomerId = null;
 let offerId = null;
 let foreignOfferId = null;
@@ -793,17 +795,17 @@ const steps = [
     },
     {
       status: 200,
-      body: ["Shared offer", "Proposed total", "Smoke-tested original scope", "Status: Awaiting customer decision"],
-      absentBody: [
-        "Revoke link",
+      body: [
+        "Shared offer",
+        "Proposed total",
+        "Smoke-tested original scope",
+        "Status: Awaiting customer decision",
+        "Your decision",
         "Accept offer",
         "Reject offer",
-        "PIN",
-        "labor_hours_per_unit",
-        "price_breakdown",
-        "pin_hash",
-        "share_token",
+        "Six-digit offer PIN",
       ],
+      absentBody: ["Revoke link", "labor_hours_per_unit", "price_breakdown", "pin_hash", "share_token"],
       check: (actual) =>
         actual.signedIn.status === 200 &&
         actual.headers.get("cache-control") === "no-store" &&
@@ -1405,6 +1407,18 @@ const steps = [
     { status: 200, body: "Accepted current base revision" },
   ],
   [
+    "accepted base decision is read-only and includes its recorded result",
+    async () => {
+      const page = await request(`/shared/${reusedShareToken}`, {}, new Map());
+      return page;
+    },
+    {
+      status: 200,
+      body: ["Accepted offer", "Decision recorded"],
+      absentBody: ["Your decision", "Accept offer", "Six-digit offer PIN"],
+    },
+  ],
+  [
     "accepted overview shows effective values and history navigation",
     () => request(`/offers/${reusedOfferId}`),
     {
@@ -1543,7 +1557,18 @@ const steps = [
       if (!reusedShareToken) return { status: 0, body: "Missing accepted offer share token." };
       const anonymous = await request(`/shared/${reusedShareToken}`, {}, new Map());
       const signedIn = await request(`/shared/${reusedShareToken}`);
-      return { ...anonymous, signedIn, body: `${anonymous.body} signed-in-status:${signedIn.status}` };
+      const state = await request(`/api/shared/${reusedShareToken}/state`, {}, new Map());
+      try {
+        displayedChangeState = JSON.parse(state.body);
+      } catch {
+        displayedChangeState = null;
+      }
+      return {
+        ...anonymous,
+        signedIn,
+        state,
+        body: `${anonymous.body} signed-in-status:${signedIn.status} state:${state.status}:${state.headers.get("cache-control")}:${state.headers.get("referrer-policy")}`,
+      };
     },
     {
       status: 200,
@@ -1554,10 +1579,74 @@ const steps = [
         "Add one smoke-tested work item unit",
         "not included in the current total",
         "Proposed price impact",
+        "Accept change",
+        "Reject change",
+        "Six-digit offer PIN",
       ],
-      absentBody: ["Accept offer", "Reject offer", "PIN", "price_breakdown", "labor_hours_per_unit"],
+      absentBody: ["Accept offer", "Reject offer", "price_breakdown", "labor_hours_per_unit"],
       check: (actual) =>
-        actual.body.includes("signed-in-status:200") && (actual.body.match(/3,00 zł/g) ?? []).length >= 2,
+        actual.body.includes("signed-in-status:200") &&
+        actual.body.includes("state:200:no-store:no-referrer") &&
+        displayedChangeState?.target_kind === "change" &&
+        displayedChangeState?.target_id === publishedChangeId &&
+        (actual.body.match(/3,00 zł/g) ?? []).length >= 2,
+    },
+  ],
+  [
+    "superseded open proposal is blocked until the refreshed page shows the replacement",
+    async () => {
+      if (!displayedChangeState || !reusedShareToken) return { status: 0, body: "Missing displayed decision state." };
+      replacedSmokeChangeId = publishedChangeId;
+      const replacement = await request(`/api/offers/${reusedOfferId}/changes/`, {
+        method: "POST",
+        form: {
+          change_json: JSON.stringify({
+            ...publishableChange,
+            expected_pending_change_id: replacedSmokeChangeId,
+            supersession_confirmed: true,
+            description: "Corrected smoke-tested change",
+          }),
+        },
+      });
+      if (replacement.status !== 201) return { status: 0, body: "Could not publish the replacement proposal." };
+      try {
+        publishedChangeId = JSON.parse(replacement.body).changeId;
+      } catch {
+        return { status: 0, body: "Could not read the replacement proposal ID." };
+      }
+      const staleDecision = await request(
+        `/api/shared/${reusedShareToken}/decision`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            target_kind: "change",
+            target_id: replacedSmokeChangeId,
+            expected_base_revision: displayedChangeState.base_revision,
+            expected_active_scope_revision: displayedChangeState.active_scope_revision,
+            pin: reusedOfferPin,
+            outcome: "accepted",
+          }),
+        },
+        new Map(),
+      );
+      const state = await request(`/api/shared/${reusedShareToken}/state`, {}, new Map());
+      const refreshedPage = await request(`/shared/${reusedShareToken}`, {}, new Map());
+      let currentState;
+      try {
+        currentState = JSON.parse(state.body);
+      } catch {
+        currentState = null;
+      }
+      return {
+        ...refreshedPage,
+        body: `${refreshedPage.body} conflict:${staleDecision.status} state:${state.status}:${currentState?.target_id ?? "missing"}`,
+      };
+    },
+    {
+      status: 200,
+      body: ["Corrected smoke-tested change", "Accept change", "conflict:409", `state:200:`],
+      check: (actual) => actual.body.includes(`state:200:${publishedChangeId}`),
     },
   ],
   [
@@ -1595,7 +1684,7 @@ const steps = [
         outcome: "rejected",
         rejection_comment: "Customer declined this change",
       });
-      for (let retry = 0; retry < 2; retry += 1) {
+      for (let retry = 0; retry < 1; retry += 1) {
         const response = await request(
           `/api/shared/${reusedShareToken}/decision`,
           {
@@ -1619,14 +1708,15 @@ const steps = [
       );
       const detail = await request(`/offers/${reusedOfferId}`);
       const history = await request(`/offers/${reusedOfferId}/history`);
+      const customerPage = await request(`/shared/${reusedShareToken}`, {}, new Map());
       return {
         ...detail,
-        body: `${detail.body} history-reason:${history.body.includes("Customer declined this change")} limited:${limited.status}`,
+        body: `${detail.body} history-reason:${history.body.includes("Customer declined this change")} limited:${limited.status} customer-result:${customerPage.body.includes("Customer comment: Customer declined this change")}:${customerPage.body.includes("Decision recorded")}`,
       };
     },
     {
       status: 200,
-      body: ['data-current-amount-minor="300"', "history-reason:true", "limited:429"],
+      body: ['data-current-amount-minor="300"', "history-reason:true", "limited:429", "customer-result:true:true"],
       absentBody: ["waiting for customer approval"],
     },
   ],

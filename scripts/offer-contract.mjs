@@ -96,6 +96,14 @@ async function verifyCurrentReads(contractor, anonymous, offer, expectedItems, e
     p_share_token: offer.share_token,
   });
   expectNoError(sharedError, "read current shared offer");
+  expect(
+    Number.isSafeInteger(shared.active_scope_revision) &&
+      shared.active_scope_revision >= 1 &&
+      /^[0-9a-f-]{36}$/i.test(shared.base_revision?.id ?? "") &&
+      Number.isSafeInteger(shared.base_revision?.revision) &&
+      shared.changes.every((change) => /^[0-9a-f-]{36}$/i.test(change.id ?? "")),
+    "shared projection must include validated customer-safe decision target identities and revisions",
+  );
   const sharedCurrent = { ...shared };
   delete sharedCurrent.active_scope_revision;
   expect(

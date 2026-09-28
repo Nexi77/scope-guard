@@ -142,6 +142,52 @@ Give the customer a mobile-friendly review-and-decision form for the initial off
 
 ---
 
+## Phase 3: Create a New Offer from a Rejected Offer
+
+### Overview
+
+Let the contractor reuse a rejected offer's details as a starting point for a new proposal, without editing or erasing the rejected offer or its decision history.
+
+### Changes Required:
+
+#### 1. Rejected-offer follow-up action
+
+**Files**: `src/pages/offers/[offerId].astro`, `src/components/offers/OfferActionsMenu.tsx` (or the existing offer-detail action surface)
+
+**Intent**: Give contractors a clear path from a rejected offer to a fresh draft.
+
+**Contract**: Show a “Create new offer from this one” action only to the authenticated contractor who owns the offer, and only when its status is `rejected`. The action opens the normal create-offer flow with a source-offer reference; it must never reopen the rejected record for editing or imply that its old link or PIN applies to the new draft.
+
+#### 2. Authorized prefill and independent draft
+
+**Files**: `src/pages/offers/new.astro`, `src/components/offers/CreateOfferForm.tsx`, `src/pages/api/offers/index.ts` only if needed
+
+**Intent**: Reuse editable proposal data while keeping the new offer independent from the rejected decision.
+
+**Contract**: Resolve the source offer server-side under the signed-in contractor's existing access checks; do not trust query-string offer fields. Prefill the existing customer and editable offer details supported by the normal form (scope/description, line items, price, and deadline where present). Submitting uses the ordinary create-offer path and creates a distinct pending offer with a new PIN and share link. Do not copy decision rows, rejection comments, timestamps, or the old share token/PIN. The rejected offer and its history remain unchanged. Invalid, missing, or inaccessible source IDs fail safely and do not disclose another contractor's data.
+
+#### 3. Copy-flow verification
+
+**Files**: `scripts/smoke.mjs`, `scripts/offer-contract.mjs` only if database-level coverage is needed
+
+**Intent**: Prove the new draft is a useful copy and the rejected record remains immutable history.
+
+**Contract**: Verify the action is available for an owned rejected offer and absent for other statuses; the authorized create page preloads source details; creating from it yields a distinct pending offer with fresh credentials; and the original remains rejected with its original decision/comment/history. Verify a foreign or malformed source ID cannot prefill data or create an offer.
+
+### Success Criteria:
+
+#### Automated Verification:
+
+- `npm run smoke` covers the authorized rejected-offer copy flow, prefilled fields, separate new offer credentials/state, unchanged source history, and invalid/foreign source IDs.
+- `npm run offer-contract` passes if database-level behavior or ownership checks are changed.
+- `npm run lint` and `npm run build` pass.
+
+#### Manual Verification:
+
+- From a rejected offer, create a new offer, confirm its customer and terms are prefilled, adjust a value, and submit it; verify the new offer has its own PIN/link and pending status while the original remains rejected with its decision history intact.
+
+---
+
 ## Testing Strategy
 
 ### Unit Tests:
@@ -185,9 +231,9 @@ Configure the server secret and Worker binding, deploy and verify the endpoint, 
 
 #### Automated
 
-- [x] 1.1 The migration applies locally and `npm run offer-contract` proves service-role-only decisions, stale protection, PIN validation, and idempotent base/change outcomes.
-- [x] 1.2 `npm run smoke` exercises the public decision endpoint's success, conflict, invalid-input, wrong-PIN, and rate-limit responses.
-- [x] 1.3 `npm run lint` and `npm run build` pass with the new route, server secret declaration, and Worker binding.
+- [x] 1.1 The migration applies locally and `npm run offer-contract` proves service-role-only decisions, stale protection, PIN validation, and idempotent base/change outcomes. — bf7056e
+- [x] 1.2 `npm run smoke` exercises the public decision endpoint's success, conflict, invalid-input, wrong-PIN, and rate-limit responses. — bf7056e
+- [x] 1.3 `npm run lint` and `npm run build` pass with the new route, server secret declaration, and Worker binding. — bf7056e
 
 #### Manual
 
@@ -197,11 +243,23 @@ Configure the server secret and Worker binding, deploy and verify the endpoint, 
 
 #### Automated
 
-- [ ] 2.1 `npm run offer-contract` passes for base/change decisions, stale conflicts, one-time activation, rejected history, and anonymous access isolation.
-- [ ] 2.2 `npm run smoke` passes through the shared page and public endpoint for both initial-offer and change decisions, including refresh after stale state and the contractor-visible result.
-- [ ] 2.3 `npm run lint` and `npm run build` pass after the shared UI and state check are added.
+- [x] 2.1 `npm run offer-contract` passes for base/change decisions, stale conflicts, one-time activation, rejected history, and anonymous access isolation.
+- [x] 2.2 `npm run smoke` passes through the shared page and public endpoint for both initial-offer and change decisions, including refresh after stale state and the contractor-visible result.
+- [x] 2.3 `npm run lint` and `npm run build` pass after the shared UI and state check are added.
 
 #### Manual
 
-- [ ] 2.4 On phone and desktop, accept and reject from a shared link with the PIN; rejection requires a comment, the result is understandable without color, and keyboard and screen-reader focus reaches errors and the outcome.
-- [ ] 2.5 Leave an offer or change decision page open, alter the offer as contractor, and confirm the page warns and blocks submission until refresh; then review and decide the new state.
+- [x] 2.4 On phone and desktop, accept and reject from a shared link with the PIN; rejection requires a comment, the result is understandable without color, and keyboard and screen-reader focus reaches errors and the outcome.
+- [x] 2.5 Leave an offer or change decision page open, alter the offer as contractor, and confirm the page warns and blocks submission until refresh; then review and decide the new state.
+
+### Phase 3: Create a New Offer from a Rejected Offer
+
+#### Automated
+
+- [ ] 3.1 The rejected-offer action and authorized create page prefill only data belonging to the signed-in contractor.
+- [ ] 3.2 Creating from a rejected offer produces an independent pending offer with fresh PIN/link and leaves the original decision and history unchanged.
+- [ ] 3.3 `npm run smoke` covers valid, malformed, and foreign source IDs; `npm run offer-contract` runs if database-level behavior changes; `npm run lint` and `npm run build` pass.
+
+#### Manual
+
+- [ ] 3.4 From a rejected offer, create a new draft, verify prefilled editable details, submit it, and confirm the new and original offers retain separate status, credentials, and history.
