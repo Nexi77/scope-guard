@@ -123,11 +123,16 @@ export async function loadContractorOfferView(
   const supabase = createClient(requestHeaders, cookies);
   if (!supabase) return { kind: "unavailable" };
 
-  const { data: offer, error: offerError } = await supabase
-    .from("offers")
-    .select(
-      `id, base_scope, base_amount_minor, base_deadline, currency_code, status, items_revision, active_scope_revision, base_revision${sections.share ? ", share_token, share_link_revoked_at" : ""}`,
-    )
+  const offerQuery = sections.share
+    ? supabase
+        .from("offers")
+        .select(
+          "id, base_scope, base_amount_minor, base_deadline, currency_code, status, items_revision, active_scope_revision, base_revision, share_token, share_link_revoked_at",
+        )
+    : supabase
+        .from("offers")
+        .select("id, base_scope, base_amount_minor, base_deadline, currency_code, status, items_revision, active_scope_revision, base_revision");
+  const { data: offer, error: offerError } = await offerQuery
     .eq("id", offerId)
     .eq("contractor_id", user.id)
     .maybeSingle();

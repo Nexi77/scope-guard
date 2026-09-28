@@ -244,7 +244,7 @@ async function seedOffer({
   return { ...offer, customerId: selectedCustomerId };
 }
 
-async function seedChange(client, contractorId, offerId, description, priceDeltaMinor) {
+async function seedChange(contractorId, offerId, description, priceDeltaMinor) {
   const { data, error } = await admin
     .from("offer_changes")
     .insert({
@@ -422,7 +422,7 @@ async function run() {
     name: "pending offer with change history",
     pinHash,
   });
-  await seedChange(contractorA.client, contractorA.id, historyLockedOffer.id, "Recorded history lock", 100);
+  await seedChange(contractorA.id, historyLockedOffer.id, "Recorded history lock", 100);
   const historyLockError = await expectError(
     contractorA.client.rpc("replace_pending_offer_revision", {
       p_offer_id: historyLockedOffer.id,
@@ -1250,21 +1250,18 @@ async function run() {
   expect(rollbackCustomers.length === 0, "failed creation must not leave a new customer behind");
 
   const acceptedChange = await seedChange(
-    contractorA.client,
     contractorA.id,
     offerA.id,
     "Accepted scope change",
     1_500,
   );
   const protectedPendingChange = await seedChange(
-    contractorA.client,
     contractorA.id,
     revisionOffer.id,
     "Protected pending change",
     2_500,
   );
   const rejectedChange = await seedChange(
-    contractorB.client,
     contractorB.id,
     offerB.id,
     "Rejected scope change",
@@ -1403,7 +1400,6 @@ async function run() {
 
   async function verifyPinWithDecision(pin, context, shouldSucceed) {
     const changeId = await seedChange(
-      contractorA.client,
       contractorA.id,
       pinOffer.id,
       `${context} verification change`,
@@ -1768,7 +1764,7 @@ async function run() {
     allBrowseRows.find((row) => row.offer_id === offerA.id)?.current_amount_minor === "11500",
     "current amount must include accepted changes and remain exact minor-unit text",
   );
-  const pendingChange = await seedChange(contractorA.client, contractorA.id, offerA.id, "Pending browse change", 3_000);
+  const pendingChange = await seedChange(contractorA.id, offerA.id, "Pending browse change", 3_000);
   expect(pendingChange, "pending change fixture must be created");
   const { error: rejectedBrowseChangeError } = await anonymous.rpc("decide_shared_offer_change", {
     p_share_token: offerA.share_token,
@@ -1830,7 +1826,6 @@ async function run() {
     pinHash,
   });
   const lockDecisionChangeId = await seedChange(
-    contractorA.client,
     contractorA.id,
     lockDecisionOffer.id,
     "Change waiting on offer lock",
