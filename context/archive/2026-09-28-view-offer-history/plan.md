@@ -197,35 +197,35 @@ Apply the additive migration before deploying a history page that reads replacem
 
 #### Automated
 
-- [x] 1.1 Local migration applies and `npm run offer-contract` passes with dated future replacements and undated existing records. — 3c9f198
-- [x] 1.2 `npm run lint` and `npm run build` pass after the schema and contract changes. — 3c9f198
+- [x] 1.1 Local migration applies and `npm run offer-contract` passes with dated future replacements and undated existing records. — eb65c92
+- [x] 1.2 `npm run lint` and `npm run build` pass after the schema and contract changes. — eb65c92
 
 #### Manual
 
-- [x] 1.3 Inspect a replaced revision and proposal in the local database: each new replacement has one successor and a timestamp, while earlier fixtures retain null replacement times. — 3c9f198
+- [x] 1.3 Inspect a replaced revision and proposal in the local database: each new replacement has one successor and a timestamp, while earlier fixtures retain null replacement times. — eb65c92
 
 ### Phase 2: Read and Present a Bounded Event Timeline
 
 #### Automated
 
-- [x] 2.1 `npm run offer-contract` verifies owner isolation, stable tie ordering, cursor continuity without duplicates or missing events, and no dated event for old null timestamps. — 18967bb
-- [x] 2.2 `npm run smoke` verifies contractor history access, chronological event labels, decision reasons, replacement links, pending anchors, and complete navigation across more than one page. — 18967bb
-- [x] 2.3 `npm run lint` and `npm run build` pass. — 18967bb
+- [x] 2.1 `npm run offer-contract` verifies owner isolation, stable tie ordering, cursor continuity without duplicates or missing events, and no dated event for old null timestamps. — eb65c92
+- [x] 2.2 `npm run smoke` verifies contractor history access, chronological event labels, decision reasons, replacement links, pending anchors, and complete navigation across more than one page. — eb65c92
+- [x] 2.3 `npm run lint` and `npm run build` pass. — eb65c92
 
 #### Manual
 
-- [x] 2.4 On desktop and phone, browse an offer with several pages: creation, decision, replacement, and zero-impact correction remain understandable and every page is reachable by keyboard. — 18967bb
-- [x] 2.5 Check that pending and rejected effects do not change the amount, deadline, or work shown on the current offer; capture before/after screenshots for the UI change. — 18967bb
-- [x] 2.6 From the current offer, activate “Review pending change” and confirm the exact proposal details open with a visible target, including when the proposal is outside the first history page and after refresh or Back. — 18967bb
+- [x] 2.4 On desktop and phone, browse an offer with several pages: creation, decision, replacement, and zero-impact correction remain understandable and every page is reachable by keyboard. — eb65c92
+- [x] 2.5 Check that pending and rejected effects do not change the amount, deadline, or work shown on the current offer; capture before/after screenshots for the UI change. — eb65c92
+- [x] 2.6 From the current offer, activate “Review pending change” and confirm the exact proposal details open with a visible target, including when the proposal is outside the first history page and after refresh or Back. — eb65c92
 
 ### Phase 3: Verify History and Current-State Boundaries
 
 #### Automated
 
-- [x] 3.1 `npm run offer-contract`, `npm run smoke`, `npm run lint`, and `npm run build` pass against a configured local Supabase environment. — bce9078
-- [x] 3.2 Existing anonymous and foreign offer checks still return the established redirect or neutral unavailable response without exposing another contractor's history. — bce9078
+- [x] 3.1 `npm run offer-contract`, `npm run smoke`, `npm run lint`, and `npm run build` pass against a configured local Supabase environment. — eb65c92
+- [x] 3.2 Existing anonymous and foreign offer checks still return the established redirect or neutral unavailable response without exposing another contractor's history. — eb65c92
 
 #### Manual
 
-- [x] 3.3 Follow the current offer → history → proposal details → current offer journey on desktop and phone, including a rejected change reason and an old undated replacement. — 465a985
-- [x] 3.4 Review screenshots for readable event order, page controls, empty state, and visible keyboard focus. — 465a985
+- [x] 3.3 Follow the current offer → history → proposal details → current offer journey on desktop and phone, including a rejected change reason and an old undated replacement. — eb65c92
+- [x] 3.4 Review screenshots for readable event order, page controls, empty state, and visible keyboard focus. — eb65c92
