@@ -16,6 +16,13 @@
       "id": "866fa09374884531ac902014e000b913"
     }
   ],
+  "ratelimits": [
+    {
+      "name": "DECISION_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 6, "period": 60 }
+    }
+  ],
   "observability": {
     "enabled": true,
   },

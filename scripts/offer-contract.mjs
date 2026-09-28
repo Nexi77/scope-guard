@@ -17,6 +17,9 @@ if (!url || !anonKey || !serviceRoleKey) {
 const admin = createClient(url, serviceRoleKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
+const anonymous = createClient(url, anonKey, {
+  auth: { autoRefreshToken: false, persistSession: false },
+});
 const runId = randomUUID();
 const createdUserIds = [];
 
@@ -36,6 +39,23 @@ async function expectError(request, context) {
   const { error } = await request;
   expect(error, `${context}: expected the request to fail`);
   return error;
+}
+
+async function decisionRpc(target, args) {
+  const { data: shared, error: readError } = await anonymous.rpc("get_shared_offer", {
+    p_share_token: args.p_share_token,
+  });
+  expectNoError(readError, "read displayed decision revisions");
+  const base = target === "base";
+  return admin.rpc(base ? "decide_customer_offer_revision" : "decide_customer_offer_change", {
+    p_share_token: args.p_share_token,
+    [base ? "p_offer_revision_id" : "p_offer_change_id"]: base ? args.p_offer_revision_id : args.p_offer_change_id,
+    p_expected_base_revision: shared?.base_revision?.revision ?? args.p_expected_base_revision ?? 1,
+    p_expected_active_scope_revision: shared?.active_scope_revision ?? args.p_expected_active_scope_revision ?? 1,
+    p_pin: args.p_pin,
+    p_outcome: args.p_outcome,
+    p_rejection_comment: args.p_rejection_comment ?? null,
+  });
 }
 
 const pause = (milliseconds) => new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds));
@@ -76,8 +96,10 @@ async function verifyCurrentReads(contractor, anonymous, offer, expectedItems, e
     p_share_token: offer.share_token,
   });
   expectNoError(sharedError, "read current shared offer");
+  const sharedCurrent = { ...shared };
+  delete sharedCurrent.active_scope_revision;
   expect(
-    JSON.stringify(owned) === JSON.stringify(shared),
+    JSON.stringify(owned) === JSON.stringify(sharedCurrent),
     "contractor and shared reads must use identical current values",
   );
   expect(
@@ -555,8 +577,48 @@ async function run() {
       latestSharedRevision.base_revision.status === "pending",
     "shared read must move to the latest pending base revision",
   );
-  const staleBaseDecision = await expectError(
+  const anonymousDecisionError = await expectError(
     anonymous.rpc("decide_shared_offer_revision", {
+      p_share_token: revisionOffer.share_token,
+      p_pin: "246810",
+      p_offer_revision_id: latestSharedRevision.base_revision.id,
+      p_outcome: "accepted",
+    }),
+    "anonymous direct decision RPC access",
+  );
+  expect(
+    anonymousDecisionError.code === "42501",
+    "anonymous clients must not execute a decision RPC while guarded shared reads remain available",
+  );
+  const anonymousServiceDecisionError = await expectError(
+    anonymous.rpc("decide_customer_offer_revision", {
+      p_share_token: revisionOffer.share_token,
+      p_offer_revision_id: latestSharedRevision.base_revision.id,
+      p_expected_base_revision: latestSharedRevision.base_revision.revision,
+      p_expected_active_scope_revision: latestSharedRevision.active_scope_revision,
+      p_pin: "246810",
+      p_outcome: "accepted",
+    }),
+    "anonymous access to the service-only decision RPC",
+  );
+  expect(
+    anonymousServiceDecisionError.code === "42501",
+    "anonymous clients must not execute the service-only decision entrypoint",
+  );
+  const staleDisplayedRevision = await expectError(
+    admin.rpc("decide_customer_offer_revision", {
+      p_share_token: revisionOffer.share_token,
+      p_offer_revision_id: latestSharedRevision.base_revision.id,
+      p_expected_base_revision: 2,
+      p_expected_active_scope_revision: 1,
+      p_pin: "246810",
+      p_outcome: "accepted",
+    }),
+    "decide from a stale displayed base revision",
+  );
+  expect(staleDisplayedRevision.code === "PT409", "changed displayed base revision must return a conflict");
+  const staleBaseDecision = await expectError(
+    decisionRpc("base", {
       p_share_token: revisionOffer.share_token,
       p_pin: "246810",
       p_offer_revision_id: firstSharedRevision.base_revision.id,
@@ -565,7 +627,7 @@ async function run() {
     "decide a superseded base revision",
   );
   expect(staleBaseDecision.code === "PT409", "superseded base revision must return a conflict");
-  const { data: acceptedRevision, error: acceptedRevisionError } = await anonymous.rpc("decide_shared_offer_revision", {
+  const { data: acceptedRevision, error: acceptedRevisionError } = await decisionRpc("base", {
     p_share_token: revisionOffer.share_token,
     p_pin: "246810",
     p_offer_revision_id: latestSharedRevision.base_revision.id,
@@ -582,15 +644,12 @@ async function run() {
       acceptedSharedRevision.base_revision.status === "accepted",
     "shared read must reflect the decided base revision status",
   );
-  const { data: repeatedRevisionDecision, error: repeatedRevisionDecisionError } = await anonymous.rpc(
-    "decide_shared_offer_revision",
-    {
-      p_share_token: revisionOffer.share_token,
-      p_pin: "246810",
-      p_offer_revision_id: revisionHistory[2].id,
-      p_outcome: "accepted",
-    },
-  );
+  const { data: repeatedRevisionDecision, error: repeatedRevisionDecisionError } = await decisionRpc("base", {
+    p_share_token: revisionOffer.share_token,
+    p_pin: "246810",
+    p_offer_revision_id: revisionHistory[2].id,
+    p_outcome: "accepted",
+  });
   expectNoError(repeatedRevisionDecisionError, "repeat base revision PIN decision");
   expect(
     repeatedRevisionDecision.decided_at === acceptedRevision.decided_at &&
@@ -683,7 +742,7 @@ async function run() {
     "publishing a correction must retain and link the superseded proposal snapshot",
   );
   const staleProposalDecision = await expectError(
-    anonymous.rpc("decide_shared_offer_change", {
+    decisionRpc("change", {
       p_share_token: revisionOffer.share_token,
       p_pin: "246810",
       p_offer_change_id: oldProposalId,
@@ -692,15 +751,12 @@ async function run() {
     "decide a superseded proposal",
   );
   expect(staleProposalDecision.code === "PT409", "superseded proposal must return a conflict");
-  const { data: acceptedChangeDecision, error: acceptedChangeDecisionError } = await anonymous.rpc(
-    "decide_shared_offer_change",
-    {
-      p_share_token: revisionOffer.share_token,
-      p_pin: "246810",
-      p_offer_change_id: currentProposalId,
-      p_outcome: "accepted",
-    },
-  );
+  const { data: acceptedChangeDecision, error: acceptedChangeDecisionError } = await decisionRpc("change", {
+    p_share_token: revisionOffer.share_token,
+    p_pin: "246810",
+    p_offer_change_id: currentProposalId,
+    p_outcome: "accepted",
+  });
   expectNoError(acceptedChangeDecisionError, "accept current proposal by PIN");
   const { data: scopeBeforeRetry, error: scopeBeforeRetryError } = await contractorA.client
     .from("offers")
@@ -708,15 +764,12 @@ async function run() {
     .eq("id", revisionOffer.id)
     .single();
   expectNoError(scopeBeforeRetryError, "read active scope revision before PIN retry");
-  const { data: repeatedChangeDecision, error: repeatedChangeDecisionError } = await anonymous.rpc(
-    "decide_shared_offer_change",
-    {
-      p_share_token: revisionOffer.share_token,
-      p_pin: "246810",
-      p_offer_change_id: currentProposalId,
-      p_outcome: "accepted",
-    },
-  );
+  const { data: repeatedChangeDecision, error: repeatedChangeDecisionError } = await decisionRpc("change", {
+    p_share_token: revisionOffer.share_token,
+    p_pin: "246810",
+    p_offer_change_id: currentProposalId,
+    p_outcome: "accepted",
+  });
   expectNoError(repeatedChangeDecisionError, "repeat current proposal decision");
   expect(
     repeatedChangeDecision.decided_at === acceptedChangeDecision.decided_at &&
@@ -795,7 +848,7 @@ async function run() {
     p_supersession_confirmed: false,
   });
   expectNoError(itemChangeError, "publish an item quantity effect");
-  const { error: itemDecisionError } = await anonymous.rpc("decide_shared_offer_change", {
+  const { error: itemDecisionError } = await decisionRpc("change", {
     p_share_token: revisionOffer.share_token,
     p_pin: "246810",
     p_offer_change_id: itemChangeId,
@@ -846,7 +899,7 @@ async function run() {
     },
   );
   expectNoError(replaceItemChangeError, "publish replacement item effects");
-  const { error: replaceItemDecisionError } = await anonymous.rpc("decide_shared_offer_change", {
+  const { error: replaceItemDecisionError } = await decisionRpc("change", {
     p_share_token: revisionOffer.share_token,
     p_pin: "246810",
     p_offer_change_id: replaceItemChangeId,
@@ -915,7 +968,7 @@ async function run() {
   ]);
   const supersedingReadId = await proposeReplacement("Superseding quantity five", 5, 20_000, pendingReadId);
   const staleOpenViewDecision = await expectError(
-    anonymous.rpc("decide_shared_offer_change", {
+    decisionRpc("change", {
       p_share_token: revisionOffer.share_token,
       p_pin: "246810",
       p_offer_change_id: pendingReadId,
@@ -936,13 +989,10 @@ async function run() {
     p_outcome: "rejected",
     p_rejection_comment: "Customer declined this quantity",
   };
-  const { data: rejectedReadDecision, error: rejectedReadError } = await anonymous.rpc(
-    "decide_shared_offer_change",
-    rejectRequest,
-  );
+  const { data: rejectedReadDecision, error: rejectedReadError } = await decisionRpc("change", rejectRequest);
   expectNoError(rejectedReadError, "reject current read fixture proposal");
-  const { data: repeatedRejectedReadDecision, error: repeatedRejectedReadError } = await anonymous.rpc(
-    "decide_shared_offer_change",
+  const { data: repeatedRejectedReadDecision, error: repeatedRejectedReadError } = await decisionRpc(
+    "change",
     rejectRequest,
   );
   expectNoError(repeatedRejectedReadError, "repeat rejected decision");
@@ -1385,7 +1435,7 @@ async function run() {
 
   async function verifyPinWithDecision(pin, context, shouldSucceed) {
     const changeId = await seedChange(contractorA.id, pinOffer.id, `${context} verification change`, 100);
-    const request = anonymous.rpc("decide_shared_offer_change", {
+    const request = decisionRpc("change", {
       p_share_token: pinOffer.share_token,
       p_pin: pin,
       p_offer_change_id: changeId,
@@ -1486,7 +1536,7 @@ async function run() {
   expectNoError(revokedOfferError, "read a revoked offer token");
   expect(revokedOfferResult === null, "revoked offer token must not return an offer");
   await expectError(
-    anonymous.rpc("decide_shared_offer_change", {
+    decisionRpc("change", {
       p_share_token: revokedOffer.share_token,
       p_pin: "246810",
       p_offer_change_id: randomUUID(),
@@ -1496,7 +1546,7 @@ async function run() {
   );
 
   await expectError(
-    anonymous.rpc("decide_shared_offer_change", {
+    decisionRpc("change", {
       p_share_token: offerA.share_token,
       p_pin: "000000",
       p_offer_change_id: acceptedChange,
@@ -1511,17 +1561,11 @@ async function run() {
     p_offer_change_id: acceptedChange,
     p_outcome: "accepted",
   };
-  const { data: acceptedDecision, error: acceptedDecisionError } = await anonymous.rpc(
-    "decide_shared_offer_change",
-    decisionRequest,
-  );
+  const { data: acceptedDecision, error: acceptedDecisionError } = await decisionRpc("change", decisionRequest);
   expectNoError(acceptedDecisionError, "accept pending change");
   expect(acceptedDecision.outcome === "accepted", "accepted decision must report accepted");
 
-  const { data: repeatedDecision, error: repeatedDecisionError } = await anonymous.rpc(
-    "decide_shared_offer_change",
-    decisionRequest,
-  );
+  const { data: repeatedDecision, error: repeatedDecisionError } = await decisionRpc("change", decisionRequest);
   expectNoError(repeatedDecisionError, "repeat accepted decision");
   expect(
     repeatedDecision.decided_at === acceptedDecision.decided_at && repeatedDecision.outcome === "accepted",
@@ -1539,7 +1583,7 @@ async function run() {
   expectNoError(acceptedDecisionRowsError, "read accepted decision history");
   expect(acceptedDecisionRows.length === 1, "repeated decision must create exactly one history record");
 
-  const { data: rejectedDecision, error: rejectedDecisionError } = await anonymous.rpc("decide_shared_offer_change", {
+  const { data: rejectedDecision, error: rejectedDecisionError } = await decisionRpc("change", {
     p_share_token: offerB.share_token,
     p_pin: "246810",
     p_offer_change_id: rejectedChange,
@@ -1746,7 +1790,7 @@ async function run() {
   );
   const pendingChange = await seedChange(contractorA.id, offerA.id, "Pending browse change", 3_000);
   expect(pendingChange, "pending change fixture must be created");
-  const { error: rejectedBrowseChangeError } = await anonymous.rpc("decide_shared_offer_change", {
+  const { error: rejectedBrowseChangeError } = await decisionRpc("change", {
     p_share_token: offerA.share_token,
     p_pin: "246810",
     p_offer_change_id: pendingChange,
@@ -1861,7 +1905,7 @@ async function run() {
         return "publication";
       },
       async () => {
-        const { error } = await anonymous.rpc("decide_shared_offer_change", {
+        const { error } = await decisionRpc("change", {
           p_share_token: lockDecisionOffer.share_token,
           p_pin: "246810",
           p_offer_change_id: lockDecisionChangeId,

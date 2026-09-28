@@ -58,6 +58,23 @@ async function request(path, { method = "GET", form, headers = {}, body } = {}, 
   };
 }
 
+async function requestWithTransientProxyRetry(path, options, session) {
+  let result;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    result = await request(path, options, session);
+    const transientProxyFailure =
+      result.status === 500 &&
+      result.headers.get("content-type")?.startsWith("text/plain") &&
+      /Network connection lost/i.test(result.body);
+    if (!transientProxyFailure) return result;
+    // Retry only the explicitly safe validation and one-time PIN requests.
+    // If a PIN response was dropped, the next call replaces the undisclosed
+    // value and returns the current one.
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 50));
+  }
+  return result;
+}
+
 function unwrapAstroProp(value) {
   if (Array.isArray(value)) {
     if (value[0] === 0 || value[0] === 1) return unwrapAstroProp(value[1]);
@@ -1249,12 +1266,15 @@ const steps = [
         .single();
       if (offerError || !offer?.share_token)
         return { status: 0, body: "Could not read the smoke contractor's offer token." };
-      const pinResponse = await request(`/api/offers/${reusedOfferId}/pin`, { method: "POST" });
+      const pinResponse = await requestWithTransientProxyRetry(`/api/offers/${reusedOfferId}/pin`, { method: "POST" });
       let pin;
       try {
         pin = JSON.parse(pinResponse.body).pin;
       } catch {
-        return { status: 0, body: "Could not generate the smoke offer PIN." };
+        return {
+          status: 0,
+          body: `Could not generate the smoke offer PIN (HTTP ${pinResponse.status}, ${pinResponse.headers.get("content-type") ?? "no content type"}).`,
+        };
       }
       if (pinResponse.status !== 200 || !/^\d{6}$/.test(pin))
         return { status: 0, body: "Could not generate a valid smoke offer PIN." };
@@ -1265,13 +1285,90 @@ const steps = [
       });
       if (sharedError || !shared?.base_revision?.id)
         return { status: 0, body: "Could not read the current shared offer revision." };
-      const { data: decision, error: decisionError } = await sharedClient.rpc("decide_shared_offer_revision", {
-        p_share_token: offer.share_token,
-        p_pin: pin,
-        p_offer_revision_id: shared.base_revision.id,
-        p_outcome: "accepted",
-      });
-      if (decisionError || decision?.status !== "accepted")
+      const wrongOrigin = await request(
+        `/api/shared/${offer.share_token}/decision`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Origin: "https://other.example" },
+          body: "{}",
+        },
+        new Map(),
+      );
+      const oversized = await request(
+        `/api/shared/${offer.share_token}/decision`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: `{"padding":"${"x".repeat(8_200)}"}`,
+        },
+        new Map(),
+      );
+      const invalidJson = await requestWithTransientProxyRetry(
+        `/api/shared/${offer.share_token}/decision`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{",
+        },
+        new Map(),
+      );
+      const baseDecision = {
+        target_kind: "base",
+        target_id: shared.base_revision.id,
+        expected_base_revision: shared.base_revision.revision,
+        expected_active_scope_revision: shared.active_scope_revision,
+        pin,
+        outcome: "accepted",
+      };
+      const wrongPin = await request(
+        `/api/shared/${offer.share_token}/decision`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...baseDecision, pin: pin === "000000" ? "000001" : "000000" }),
+        },
+        new Map(),
+      );
+      const staleView = await request(
+        `/api/shared/${offer.share_token}/decision`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...baseDecision, expected_base_revision: shared.base_revision.revision + 1 }),
+        },
+        new Map(),
+      );
+      if (
+        wrongOrigin.status !== 403 ||
+        oversized.status !== 413 ||
+        invalidJson.status !== 400 ||
+        wrongPin.status !== 400 ||
+        staleView.status !== 409
+      ) {
+        return {
+          status: 0,
+          body: `Decision endpoint status checks failed: origin=${wrongOrigin.status}, size=${oversized.status}, JSON=${invalidJson.status}, PIN=${wrongPin.status}, stale=${staleView.status}.`,
+        };
+      }
+      const decisionResponse = await request(
+        `/api/shared/${offer.share_token}/decision`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(baseDecision) },
+        new Map(),
+      );
+      let decision;
+      try {
+        decision = JSON.parse(decisionResponse.body);
+      } catch {
+        const diagnostic = decisionResponse.body
+          .slice(0, 300)
+          .replaceAll(pin, "[redacted]")
+          .replaceAll(supabaseServiceKey, "[redacted]");
+        return {
+          status: 0,
+          body: `Decision response was not JSON (HTTP ${decisionResponse.status}, ${decisionResponse.headers.get("content-type") ?? "no content type"}): ${diagnostic}`,
+        };
+      }
+      if (decisionResponse.status !== 200 || decision?.outcome !== "accepted")
         return { status: 0, body: "Could not accept the current smoke offer revision." };
       const { data: items, error: itemsError } = await contractor
         .from("offer_items")
@@ -1299,7 +1396,11 @@ const steps = [
         effects: [{ itemId: item.id, before, after: { ...before, quantity: 2 } }],
         commercial_adjustment_minor: "0",
       };
-      return { status: 200, location: "", body: "Accepted current base revision and prepared its item effect." };
+      return {
+        status: 200,
+        location: "",
+        body: "Accepted current base revision through the public endpoint and prepared its item effect.",
+      };
     },
     { status: 200, body: "Accepted current base revision" },
   ],
@@ -1462,24 +1563,70 @@ const steps = [
   [
     "rejected change stays in history and leaves the active amount unchanged",
     async () => {
-      const { error } = await sharedClient.rpc("decide_shared_offer_change", {
+      const { data: shared, error: sharedError } = await sharedClient.rpc("get_shared_offer", {
         p_share_token: reusedShareToken,
-        p_pin: reusedOfferPin,
-        p_offer_change_id: publishedChangeId,
-        p_outcome: "rejected",
-        p_rejection_comment: "Customer declined this change",
       });
-      if (error) return { status: 0, body: "Could not reject the smoke proposal." };
+      if (sharedError || !shared?.active_scope_revision)
+        return { status: 0, body: "Could not read the current scope revision." };
+      const rejected = await request(
+        `/api/shared/${reusedShareToken}/decision`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            target_kind: "change",
+            target_id: publishedChangeId,
+            expected_base_revision: shared.base_revision.revision,
+            expected_active_scope_revision: shared.active_scope_revision,
+            pin: reusedOfferPin,
+            outcome: "rejected",
+            rejection_comment: "Customer declined this change",
+          }),
+        },
+        new Map(),
+      );
+      if (rejected.status !== 200) return { status: 0, body: "Could not reject the smoke proposal." };
+      const retryBody = JSON.stringify({
+        target_kind: "change",
+        target_id: publishedChangeId,
+        expected_base_revision: shared.base_revision.revision,
+        expected_active_scope_revision: shared.active_scope_revision,
+        pin: reusedOfferPin,
+        outcome: "rejected",
+        rejection_comment: "Customer declined this change",
+      });
+      for (let retry = 0; retry < 2; retry += 1) {
+        const response = await request(
+          `/api/shared/${reusedShareToken}/decision`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: retryBody,
+          },
+          new Map(),
+        );
+        if (response.status !== 200)
+          return { status: 0, body: "Idempotent decision retry did not return its original result." };
+      }
+      const limited = await request(
+        `/api/shared/${reusedShareToken}/decision`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: retryBody,
+        },
+        new Map(),
+      );
       const detail = await request(`/offers/${reusedOfferId}`);
       const history = await request(`/offers/${reusedOfferId}/history`);
       return {
         ...detail,
-        body: `${detail.body} history-reason:${history.body.includes("Customer declined this change")}`,
+        body: `${detail.body} history-reason:${history.body.includes("Customer declined this change")} limited:${limited.status}`,
       };
     },
     {
       status: 200,
-      body: ['data-current-amount-minor="300"', "history-reason:true"],
+      body: ['data-current-amount-minor="300"', "history-reason:true", "limited:429"],
       absentBody: ["waiting for customer approval"],
     },
   ],
