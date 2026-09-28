@@ -52,12 +52,12 @@ jobs:
           printf 'SUPABASE_URL=%s\nSUPABASE_KEY=%s\n' "$API_URL" "$ANON_KEY" > .env
           cp .env .dev.vars
       - run: npm run build
-      - name: Run smoke test against production preview
+      - name: Run smoke test against local Worker
         run: |
           set -a
           source supabase.env
           set +a
-          npm run preview -- --port 4321 &
+          npx wrangler dev --local --inspector-port 0 --port 4321 &
           for i in $(seq 1 60); do curl -sf -o /dev/null http://localhost:4321/auth/signin && break; sleep 1; done
           BASE_URL=http://localhost:4321 npm run smoke
       - if: always()
