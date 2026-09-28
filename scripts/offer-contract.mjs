@@ -104,11 +104,25 @@ async function verifyCurrentReads(contractor, anonymous, offer, expectedItems, e
       shared.changes.every((change) => /^[0-9a-f-]{36}$/i.test(change.id ?? "")),
     "shared projection must include validated customer-safe decision target identities and revisions",
   );
-  const sharedCurrent = { ...shared };
-  delete sharedCurrent.active_scope_revision;
   expect(
-    JSON.stringify(owned) === JSON.stringify(sharedCurrent),
-    "contractor and shared reads must use identical current values",
+    shared.status === owned.status &&
+      shared.currency_code === owned.currency_code &&
+      shared.active_amount_minor === owned.active_amount_minor &&
+      shared.active_deadline === owned.active_deadline &&
+      shared.active_scope.base_scope === owned.active_scope.base_scope &&
+      shared.changes.length === owned.changes.length,
+    "shared reads must retain current customer-facing values",
+  );
+  const sharedJson = JSON.stringify(shared);
+  expect(
+    ![
+      "price_breakdown",
+      "price_explanation",
+      "legacy_adjustment",
+      "commercial_adjustment_reason",
+      "credit_reconciliation_minor",
+    ].some((field) => sharedJson.includes(field)),
+    "anonymous shared reads must omit internal estimate breakdown fields",
   );
   expect(
     isDeepStrictEqual(effectiveItems.map(publicItem), expectedItems) &&
@@ -1395,6 +1409,16 @@ async function run() {
   expect(sharedOffer?.id === offerA.id, "shared offer RPC must return the token's offer");
   expect(!JSON.stringify(sharedOffer).includes("pin_hash"), "shared offer RPC must not expose pin_hash");
   expect(
+    ![
+      "price_breakdown",
+      "price_explanation",
+      "legacy_adjustment",
+      "commercial_adjustment_reason",
+      "credit_reconciliation_minor",
+    ].some((field) => JSON.stringify(sharedOffer).includes(field)),
+    "shared offer RPC must not expose internal estimate breakdown fields",
+  );
+  expect(
     sharedOffer.active_scope.items.length === 1 &&
       !JSON.stringify(sharedOffer.active_scope.items).includes("labor_hours_per_unit") &&
       !JSON.stringify(sharedOffer.active_scope.items).includes("contractor_id"),
@@ -1607,7 +1631,7 @@ async function run() {
   expectNoError(rejectedSharedOfferError, "read rejected offer");
   expect(
     rejectedSharedOffer.active_amount_minor === "10000" &&
-      rejectedSharedOffer.active_scope.accepted_changes.length === 0,
+      (rejectedSharedOffer.active_scope.accepted_changes?.length ?? 0) === 0,
     "a rejected change must not alter active offer state",
   );
 

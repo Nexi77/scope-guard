@@ -994,6 +994,17 @@ const steps = [
       const unknown = await request("/offers/new?source=00000000-0000-4000-8000-000000000000");
       const foreign = await request(`/offers/new?source=${encodeURIComponent(foreignOfferId)}`);
       const pending = await request(`/offers/new?source=${encodeURIComponent(reusedOfferId)}`);
+      const invalidSourceFallbacks = [malformed, unknown, foreign, pending];
+      const manualFallbackAvailable = invalidSourceFallbacks.every(
+        (result) =>
+          result.status === 200 &&
+          result.body.includes("The rejected offer is unavailable") &&
+          result.body.includes('action="/api/offers"') &&
+          !result.body.includes("data-prefilled-source-offer=") &&
+          !result.body.includes("Rejected initial smoke scope"),
+      );
+      if (!manualFallbackAvailable)
+        return { ...malformed, body: `${malformed.body} invalid-source-manual-fallback-mismatch` };
       const prefillVisible =
         sourceForm.status === 200 &&
         sourceForm.body.includes(`data-prefilled-source-offer="${rejectedOfferId}"`) &&

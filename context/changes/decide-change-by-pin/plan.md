@@ -164,7 +164,7 @@ Let the contractor reuse a rejected offer's details as a starting point for a ne
 
 **Intent**: Reuse editable proposal data while keeping the new offer independent from the rejected decision.
 
-**Contract**: Resolve the source offer server-side under the signed-in contractor's existing access checks; do not trust query-string offer fields. Prefill the existing customer and editable offer details supported by the normal form (scope/description, line items, price, and deadline where present). Submitting uses the ordinary create-offer path and creates a distinct pending offer with a new PIN and share link. Do not copy decision rows, rejection comments, timestamps, or the old share token/PIN. The rejected offer and its history remain unchanged. Invalid, missing, or inaccessible source IDs fail safely and do not disclose another contractor's data.
+**Contract**: Resolve the source offer server-side under the signed-in contractor's existing access checks; do not trust query-string offer fields. Prefill the existing customer and editable offer details supported by the normal form (scope/description, line items, price, and deadline where present). Submitting uses the ordinary create-offer path and creates a distinct pending offer with a new share link. Its PIN remains unset until the contractor explicitly sets a fresh PIN through the normal offer PIN flow; the old PIN is never reused. Do not copy decision rows, rejection comments, timestamps, or the old share token/PIN. The rejected offer and its history remain unchanged. Invalid, missing, or inaccessible source IDs fail safely and do not disclose another contractor's data.
 
 #### 3. Copy-flow verification
 
@@ -172,13 +172,13 @@ Let the contractor reuse a rejected offer's details as a starting point for a ne
 
 **Intent**: Prove the new draft is a useful copy and the rejected record remains immutable history.
 
-**Contract**: Verify the action is available for an owned rejected offer and absent for other statuses; the authorized create page preloads source details; creating from it yields a distinct pending offer with fresh credentials; and the original remains rejected with its original decision/comment/history. Verify a foreign or malformed source ID cannot prefill data or create an offer.
+**Contract**: Verify the action is available for an owned rejected offer and absent for other statuses; the authorized create page preloads source details; creating from it yields a distinct pending offer with a fresh share link and a fresh PIN set through the normal PIN flow; and the original remains rejected with its original decision/comment/history. A malformed, missing, foreign, or otherwise inaccessible source ID must not prefill or create an offer from that source. Show a clear unavailable notice and keep ordinary blank manual offer creation available.
 
 ### Success Criteria:
 
 #### Automated Verification:
 
-- `npm run smoke` covers the authorized rejected-offer copy flow, prefilled fields, separate new offer credentials/state, unchanged source history, and invalid/foreign source IDs.
+- `npm run smoke` covers the authorized rejected-offer copy flow, prefilled fields, separate new offer credentials/state, unchanged source history, and invalid/foreign source IDs showing the blank manual fallback without source prefill.
 - `npm run offer-contract` passes if database-level behavior or ownership checks are changed.
 - `npm run lint` and `npm run build` pass.
 
@@ -237,7 +237,7 @@ Configure the server secret and Worker binding, deploy and verify the endpoint, 
 
 #### Manual
 
-- [x] 1.4 With local Supabase and Worker preview configured, a revoked link and repeated wrong PIN attempts cannot reach a customer decision; no PIN or service credential appears in the browser network response, URL, or application logs. — 21657bd
+- [ ] 1.4 With local Supabase and Worker preview configured, a revoked link and repeated wrong PIN attempts cannot reach a customer decision; no PIN or service credential appears in the browser network response, URL, or application logs. — Rechecked 2026-09-28: revoked link unavailable; wrong PIN left the decision pending and the field cleared; PIN absent from URL. Network response and application log inspection remain pending.
 
 ### Phase 2: Customer Review and Stale-View Experience
 
@@ -249,7 +249,7 @@ Configure the server secret and Worker binding, deploy and verify the endpoint, 
 
 #### Manual
 
-- [x] 2.4 On phone and desktop, accept and reject from a shared link with the PIN; rejection requires a comment, the result is understandable without color, and keyboard and screen-reader focus reaches errors and the outcome. — 310d2db
+- [ ] 2.4 On phone and desktop, accept and reject from a shared link with the PIN; rejection requires a comment, the result is understandable without color, and keyboard and screen-reader focus reaches errors and the outcome. — Rechecked 2026-09-28 on desktop: accept/reject, required comment, keyboard order, error-summary focus, and recorded outcomes verified. Phone viewport and actual screen-reader announcement remain pending.
 - [x] 2.5 Leave an offer or change decision page open, alter the offer as contractor, and confirm the page warns and blocks submission until refresh; then review and decide the new state. — 310d2db
 
 ### Phase 3: Create a New Offer from a Rejected Offer
@@ -257,9 +257,18 @@ Configure the server secret and Worker binding, deploy and verify the endpoint, 
 #### Automated
 
 - [x] 3.1 The rejected-offer action and authorized create page prefill only data belonging to the signed-in contractor. — 21657bd
-- [x] 3.2 Creating from a rejected offer produces an independent pending offer with fresh PIN/link and leaves the original decision and history unchanged. — 21657bd
-- [x] 3.3 `npm run smoke` covers valid, malformed, and foreign source IDs; `npm run offer-contract` runs if database-level behavior changes; `npm run lint` and `npm run build` pass. — 21657bd
+- [x] 3.2 Creating from a rejected offer produces an independent pending offer with a fresh share link and no PIN until the contractor sets a new one through the normal PIN flow; the original decision and history remain unchanged. — 21657bd
+- [x] 3.3 `npm run smoke` covers valid, malformed, unknown, pending, and foreign source IDs; invalid sources show the blank manual fallback without source prefill. `npm run offer-contract` runs if database-level behavior changes; `npm run lint` and `npm run build` pass. — 21657bd
 
 #### Manual
 
-- [x] 3.4 From a rejected offer, create a new draft, verify prefilled editable details, submit it, and confirm the new and original offers retain separate status, credentials, and history. — 21657bd
+- [x] 3.4 From a rejected offer, create a new draft, verify prefilled editable details, submit it, set a fresh PIN through the normal PIN flow, and confirm the new and original offers retain separate status, credentials, and history. — 21657bd
+
+#### Manual Recheck Record — 2026-09-28
+
+- Local desktop browser: accepted the initial offer and a refreshed replacement change; rejected an initial offer with a comment and verified the contractor history retained the reason and rejected status.
+- Keyboard/accessibility tree: Tab reached accept/reject and form fields in order. Submitting a rejection without a comment focused the error summary; its link returned focus to the field. Recorded outcomes appeared in a polite status region. The browser accessibility tree exposed labels and statuses; no separate screen reader was run.
+- Stale view: left the customer page open, superseded its pending change as contractor, observed disabled decision controls and the inline warning/toast, refreshed, reviewed the replacement terms, and accepted it.
+- Rejected-offer copy: opened the owner action, verified editable prefilled details, changed scope and price, created a distinct pending offer and link, set a fresh PIN separately, and accepted it. The source remained rejected with its original reason and terms.
+- Revoked link: revoked the test offer's link and confirmed the shared page showed “Offer unavailable.”
+- Scope limits: these checks used the local preview at desktop size. Phone viewport, actual assistive-technology output, and browser network/application log inspection were not available in this pass; items 1.4 and 2.4 remain unchecked for those parts.
