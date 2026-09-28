@@ -1,7 +1,13 @@
 ---
 import Layout from "@/layouts/Layout.astro";
+import SharedOfferDecisionForm from "@/components/offers/SharedOfferDecisionForm";
 import { formatMinorAmount } from "@/lib/offer-items";
-import { loadSharedOfferView, type SharedChangeStatus, type SharedOfferStatus } from "@/lib/shared-offer-view";
+import {
+  getSharedDecisionTarget,
+  loadSharedOfferView,
+  type SharedChangeStatus,
+  type SharedOfferStatus,
+} from "@/lib/shared-offer-view";
 
 Astro.response.headers.set("Cache-Control", "no-store");
 Astro.response.headers.set("Referrer-Policy", "no-referrer");
@@ -33,6 +39,7 @@ const formatEffect = (minor: string, currencyCode: string) => {
 };
 const pendingChange = view?.changes.find((change) => change.status === "pending");
 const pastChanges = view?.changes.filter((change) => change.status !== "pending") ?? [];
+const decisionTarget = view ? getSharedDecisionTarget(view) : null;
 ---
 
 <Layout title={view ? "Shared offer · ScopeGuard" : "Offer unavailable · ScopeGuard"} noIndex>
@@ -80,6 +87,21 @@ const pastChanges = view?.changes.filter((change) => change.status !== "pending"
           {view.status === "rejected" && (
             <p class="mt-4 text-slate-700 dark:text-slate-200">
               This offer was rejected and is not active agreed work.
+            </p>
+          )}
+          {view.baseRevision.status !== "pending" && (
+            <p class="mt-3 text-sm text-slate-700 dark:text-slate-200">
+              {view.baseRevision.decidedAt ? (
+                <>
+                  Decision recorded{" "}
+                  <time datetime={view.baseRevision.decidedAt}>
+                    {new Date(view.baseRevision.decidedAt).toLocaleString()}
+                  </time>
+                  .
+                </>
+              ) : (
+                "This decision predates recorded timestamps."
+              )}
             </p>
           )}
 
@@ -142,6 +164,18 @@ const pastChanges = view?.changes.filter((change) => change.status !== "pending"
           </section>
         </section>
 
+        {decisionTarget?.kind === "base" && (
+          <SharedOfferDecisionForm
+            client:load
+            token={Astro.params.token ?? ""}
+            targetKind="base"
+            targetId={decisionTarget.id}
+            baseRevisionId={view.baseRevision.id}
+            baseRevision={view.baseRevision.revision}
+            activeScopeRevision={view.activeScopeRevision}
+          />
+        )}
+
         {pendingChange && (
           <section
             aria-labelledby="pending-change-title"
@@ -173,6 +207,17 @@ const pastChanges = view?.changes.filter((change) => change.status !== "pending"
                 </dd>
               </div>
             </dl>
+            {decisionTarget?.kind === "change" && (
+              <SharedOfferDecisionForm
+                client:load
+                token={Astro.params.token ?? ""}
+                targetKind="change"
+                targetId={decisionTarget.id}
+                baseRevisionId={view.baseRevision.id}
+                baseRevision={view.baseRevision.revision}
+                activeScopeRevision={view.activeScopeRevision}
+              />
+            )}
           </section>
         )}
 
@@ -191,6 +236,18 @@ const pastChanges = view?.changes.filter((change) => change.status !== "pending"
                   <p class="mt-1 text-sm text-slate-700 dark:text-slate-200">
                     Status: {changeStatusLabels[change.status]}
                   </p>
+                  {change.decision && (
+                    <div class="mt-2 space-y-1 text-sm text-slate-700 dark:text-slate-200">
+                      <p>
+                        Decision recorded{" "}
+                        <time datetime={change.decision.decidedAt}>
+                          {new Date(change.decision.decidedAt).toLocaleString()}
+                        </time>
+                        .
+                      </p>
+                      {change.decision.rejectionComment && <p>Customer comment: {change.decision.rejectionComment}</p>}
+                    </div>
+                  )}
                   <dl class="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-sm">
                     <div>
                       <dt class="inline text-slate-500">Price effect: </dt>

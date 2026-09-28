@@ -58,6 +58,23 @@ async function request(path, { method = "GET", form, headers = {}, body } = {}, 
   };
 }
 
+async function requestWithTransientProxyRetry(path, options, session) {
+  let result;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    result = await request(path, options, session);
+    const transientProxyFailure =
+      result.status === 500 &&
+      result.headers.get("content-type")?.startsWith("text/plain") &&
+      /Network connection lost/i.test(result.body);
+    if (!transientProxyFailure) return result;
+    // Retry only the explicitly safe validation and one-time PIN requests.
+    // If a PIN response was dropped, the next call replaces the undisclosed
+    // value and returns the current one.
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 50));
+  }
+  return result;
+}
+
 function unwrapAstroProp(value) {
   if (Array.isArray(value)) {
     if (value[0] === 0 || value[0] === 1) return unwrapAstroProp(value[1]);
@@ -206,10 +223,16 @@ let reusedOfferId = null;
 let reusedItemIds = [];
 let historyLockedOfferId = null;
 let rejectedOfferId = null;
+let copiedOfferId = null;
+let rejectedOfferPin = null;
+let copiedOfferPin = null;
+let rejectedOfferSnapshot = null;
 let publishedChangeId = null;
 let reusedOfferPin = null;
 let reusedShareToken = null;
 let publishableChange = null;
+let replacedSmokeChangeId = null;
+let displayedChangeState = null;
 let foreignCustomerId = null;
 let offerId = null;
 let foreignOfferId = null;
@@ -776,17 +799,17 @@ const steps = [
     },
     {
       status: 200,
-      body: ["Shared offer", "Proposed total", "Smoke-tested original scope", "Status: Awaiting customer decision"],
-      absentBody: [
-        "Revoke link",
+      body: [
+        "Shared offer",
+        "Proposed total",
+        "Smoke-tested original scope",
+        "Status: Awaiting customer decision",
+        "Your decision",
         "Accept offer",
         "Reject offer",
-        "PIN",
-        "labor_hours_per_unit",
-        "price_breakdown",
-        "pin_hash",
-        "share_token",
+        "Six-digit offer PIN",
       ],
+      absentBody: ["Revoke link", "labor_hours_per_unit", "price_breakdown", "pin_hash", "share_token"],
       check: (actual) =>
         actual.signedIn.status === 200 &&
         actual.headers.get("cache-control") === "no-store" &&
@@ -899,6 +922,15 @@ const steps = [
       });
       rejectedOfferId = offerIdFromLocation(creation.location);
       if (!rejectedOfferId) return { status: 0, body: "Could not create rejected fixture." };
+      const pinResponse = await request(`/api/offers/${rejectedOfferId}/pin`, { method: "POST" });
+      try {
+        rejectedOfferPin = JSON.parse(pinResponse.body).pin ?? null;
+      } catch {
+        rejectedOfferPin = null;
+      }
+      if (pinResponse.status !== 200 || !/^\d{6}$/.test(rejectedOfferPin ?? "")) {
+        return { status: 0, body: "Could not prepare an independently pinned rejected fixture." };
+      }
       const { error: offerError } = await admin.from("offers").update({ status: "rejected" }).eq("id", rejectedOfferId);
       const { error: revisionError } = await admin
         .from("offer_revisions")
@@ -911,6 +943,30 @@ const steps = [
         .eq("offer_id", rejectedOfferId)
         .eq("revision", 1);
       if (offerError || revisionError) return { status: 0, body: "Could not mark rejected fixture." };
+      const { data: sourceOffer, error: sourceOfferError } = await admin
+        .from("offers")
+        .select("id, customer_id, status, base_scope, base_deadline, share_token, pin_hash")
+        .eq("id", rejectedOfferId)
+        .single();
+      const { data: sourceRevision, error: sourceRevisionError } = await admin
+        .from("offer_revisions")
+        .select(
+          "revision, base_scope, base_amount_minor, base_deadline, status, decision_outcome, decided_at, rejection_comment, items",
+        )
+        .eq("offer_id", rejectedOfferId)
+        .eq("revision", 1)
+        .single();
+      if (sourceOfferError || sourceRevisionError) {
+        const snapshotFailures = [
+          ["offer", sourceOfferError],
+          ["revision", sourceRevisionError],
+        ]
+          .filter(([, error]) => error)
+          .map(([table, error]) => `${table}:${error.code ?? "unknown"}:${error.message}`)
+          .join("; ");
+        return { status: 0, body: `Could not snapshot rejected fixture: ${snapshotFailures}` };
+      }
+      rejectedOfferSnapshot = { offer: sourceOffer, revision: sourceRevision };
       const detail = await request(`/offers/${rejectedOfferId}`);
       const history = await request(`/offers/${rejectedOfferId}/history`);
       return {
@@ -920,8 +976,138 @@ const steps = [
     },
     {
       status: 200,
-      body: ["Customer rejected this offer", "Customer declined the first offer", "history:200:true"],
+      body: [
+        "Customer rejected this offer",
+        "Customer declined the first offer",
+        "Create new offer from this one",
+        "history:200:true",
+      ],
       absentBody: ["Current agreed work", "Record a change", 'aria-label="Offer actions"'],
+    },
+  ],
+  [
+    "rejected offer prefill is owner-scoped and creates an independent offer",
+    async () => {
+      if (!rejectedOfferId || !rejectedOfferSnapshot) return { status: 0, body: "Missing rejected offer fixture." };
+      const sourceForm = await request(`/offers/new?source=${encodeURIComponent(rejectedOfferId)}`);
+      const malformed = await request("/offers/new?source=not-a-uuid");
+      const unknown = await request("/offers/new?source=00000000-0000-4000-8000-000000000000");
+      const foreign = await request(`/offers/new?source=${encodeURIComponent(foreignOfferId)}`);
+      const pending = await request(`/offers/new?source=${encodeURIComponent(reusedOfferId)}`);
+      const invalidSourceFallbacks = [malformed, unknown, foreign, pending];
+      const manualFallbackAvailable = invalidSourceFallbacks.every(
+        (result) =>
+          result.status === 200 &&
+          result.body.includes("The rejected offer is unavailable") &&
+          result.body.includes('action="/api/offers"') &&
+          !result.body.includes("data-prefilled-source-offer=") &&
+          !result.body.includes("Rejected initial smoke scope"),
+      );
+      if (!manualFallbackAvailable)
+        return { ...malformed, body: `${malformed.body} invalid-source-manual-fallback-mismatch` };
+      const prefillVisible =
+        sourceForm.status === 200 &&
+        sourceForm.body.includes(`data-prefilled-source-offer="${rejectedOfferId}"`) &&
+        sourceForm.body.includes(`name="customer_id" value="${rejectedOfferSnapshot.offer.customer_id}"`) &&
+        sourceForm.body.includes("Rejected initial smoke scope") &&
+        sourceForm.body.includes("Smoke-tested work item") &&
+        sourceForm.body.includes("Smoke-tested specification");
+      if (!prefillVisible) return { ...sourceForm, body: `${sourceForm.body} authorized-prefill-missing` };
+      const creation = await request("/api/offers", {
+        method: "POST",
+        form: {
+          customer_id: rejectedOfferSnapshot.offer.customer_id,
+          base_scope: "Rejected initial smoke scope",
+          base_deadline: rejectedOfferSnapshot.offer.base_deadline,
+          items_json: JSON.stringify(standardItems(700)),
+        },
+      });
+      copiedOfferId = offerIdFromLocation(creation.location);
+      if (creation.status !== 302 || !copiedOfferId || copiedOfferId === rejectedOfferId) {
+        return { ...creation, body: "Independent offer was not created." };
+      }
+      const newPinResponse = await request(`/api/offers/${copiedOfferId}/pin`, { method: "POST" });
+      try {
+        copiedOfferPin = JSON.parse(newPinResponse.body).pin ?? null;
+      } catch {
+        copiedOfferPin = null;
+      }
+      const { data: copiedOffer, error: copiedOfferError } = await admin
+        .from("offers")
+        .select("id, customer_id, status, base_scope, base_deadline, share_token, pin_hash")
+        .eq("id", copiedOfferId)
+        .single();
+      const { data: copiedRevisions, error: copiedRevisionError } = await admin
+        .from("offer_revisions")
+        .select("revision, status, decision_outcome, decided_at, rejection_comment, items")
+        .eq("offer_id", copiedOfferId);
+      const { data: unchangedOffer, error: unchangedOfferError } = await admin
+        .from("offers")
+        .select("id, customer_id, status, base_scope, base_deadline, share_token, pin_hash")
+        .eq("id", rejectedOfferId)
+        .single();
+      const { data: unchangedRevision, error: unchangedRevisionError } = await admin
+        .from("offer_revisions")
+        .select(
+          "revision, base_scope, base_amount_minor, base_deadline, status, decision_outcome, decided_at, rejection_comment, items",
+        )
+        .eq("offer_id", rejectedOfferId)
+        .eq("revision", 1)
+        .single();
+      const historyUnchanged =
+        JSON.stringify(unchangedOffer) === JSON.stringify(rejectedOfferSnapshot.offer) &&
+        JSON.stringify(unchangedRevision) === JSON.stringify(rejectedOfferSnapshot.revision);
+      const sourceItems = rejectedOfferSnapshot.revision.items;
+      const copiedItems = copiedRevisions?.[0]?.items;
+      const copiedItemIdsAreNew =
+        Array.isArray(sourceItems) &&
+        Array.isArray(copiedItems) &&
+        sourceItems.length === copiedItems.length &&
+        sourceItems.every((item, index) => item.id !== copiedItems[index]?.id);
+      const itemSnapshotsMatch =
+        Array.isArray(sourceItems) &&
+        Array.isArray(copiedItems) &&
+        JSON.stringify(
+          sourceItems.map((item) => Object.fromEntries(Object.entries(item).filter(([key]) => key !== "id"))),
+        ) ===
+          JSON.stringify(
+            copiedItems.map((item) => Object.fromEntries(Object.entries(item).filter(([key]) => key !== "id"))),
+          );
+      const independentDraft =
+        !copiedOfferError &&
+        !copiedRevisionError &&
+        copiedOffer.status === "pending" &&
+        copiedOffer.customer_id === rejectedOfferSnapshot.offer.customer_id &&
+        copiedOffer.base_scope === rejectedOfferSnapshot.offer.base_scope &&
+        copiedOffer.base_deadline === rejectedOfferSnapshot.offer.base_deadline &&
+        copiedItemIdsAreNew &&
+        itemSnapshotsMatch &&
+        copiedOffer.share_token !== rejectedOfferSnapshot.offer.share_token &&
+        copiedOffer.pin_hash !== rejectedOfferSnapshot.offer.pin_hash &&
+        Boolean(copiedOffer.pin_hash) &&
+        newPinResponse.status === 200 &&
+        /^\d{6}$/.test(copiedOfferPin ?? "") &&
+        copiedRevisions.length === 1 &&
+        copiedRevisions[0].status === "pending" &&
+        copiedRevisions[0].decision_outcome === null &&
+        copiedRevisions[0].decided_at === null &&
+        copiedRevisions[0].rejection_comment === null;
+      const invalidSourcesSafe = [malformed, unknown, foreign, pending].every(
+        (response) =>
+          response.status === 200 &&
+          response.body.includes("The rejected offer is unavailable") &&
+          !response.body.includes("Foreign contractor private scope") &&
+          !response.body.includes("Rejected initial smoke scope"),
+      );
+      const page = await request(`/offers/${rejectedOfferId}`);
+      return {
+        ...page,
+        body: `prefill:${prefillVisible} independent:${independentDraft} source-history:${historyUnchanged} invalid-sources:${invalidSourcesSafe} errors:${copiedOfferError?.message ?? "none"}/${copiedRevisionError?.message ?? "none"}/${unchangedOfferError?.message ?? "none"}/${unchangedRevisionError?.message ?? "none"}`,
+      };
+    },
+    {
+      status: 200,
+      body: "prefill:true independent:true source-history:true invalid-sources:true errors:none/none/none/none",
     },
   ],
   [
@@ -932,12 +1118,18 @@ const steps = [
       const change = await request(`/offers/${reusedOfferId}/changes/new`);
       return {
         ...edit,
-        body: `${edit.body} overview-actions:${detail.body.includes('aria-label="Offer actions"')} change:${change.status}:${change.body.includes("Change proposal unavailable")}`,
+        body: `${edit.body} overview-actions:${detail.body.includes('aria-label="Offer actions"')} rejected-copy:${detail.body.includes("Create new offer from this one")} change:${change.status}:${change.body.includes("Change proposal unavailable")}`,
       };
     },
     {
       status: 200,
-      body: ["Edit pending offer", "Replace the pending version", "overview-actions:true", "change:404:true"],
+      body: [
+        "Edit pending offer",
+        "Replace the pending version",
+        "overview-actions:true",
+        "rejected-copy:false",
+        "change:404:true",
+      ],
       check: (actual) =>
         actual.body.includes("Edit pending offer") && !actual.body.includes("Change proposal unavailable"),
     },
@@ -1249,12 +1441,15 @@ const steps = [
         .single();
       if (offerError || !offer?.share_token)
         return { status: 0, body: "Could not read the smoke contractor's offer token." };
-      const pinResponse = await request(`/api/offers/${reusedOfferId}/pin`, { method: "POST" });
+      const pinResponse = await requestWithTransientProxyRetry(`/api/offers/${reusedOfferId}/pin`, { method: "POST" });
       let pin;
       try {
         pin = JSON.parse(pinResponse.body).pin;
       } catch {
-        return { status: 0, body: "Could not generate the smoke offer PIN." };
+        return {
+          status: 0,
+          body: `Could not generate the smoke offer PIN (HTTP ${pinResponse.status}, ${pinResponse.headers.get("content-type") ?? "no content type"}).`,
+        };
       }
       if (pinResponse.status !== 200 || !/^\d{6}$/.test(pin))
         return { status: 0, body: "Could not generate a valid smoke offer PIN." };
@@ -1265,13 +1460,90 @@ const steps = [
       });
       if (sharedError || !shared?.base_revision?.id)
         return { status: 0, body: "Could not read the current shared offer revision." };
-      const { data: decision, error: decisionError } = await sharedClient.rpc("decide_shared_offer_revision", {
-        p_share_token: offer.share_token,
-        p_pin: pin,
-        p_offer_revision_id: shared.base_revision.id,
-        p_outcome: "accepted",
-      });
-      if (decisionError || decision?.status !== "accepted")
+      const wrongOrigin = await request(
+        `/api/shared/${offer.share_token}/decision`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Origin: "https://other.example" },
+          body: "{}",
+        },
+        new Map(),
+      );
+      const oversized = await request(
+        `/api/shared/${offer.share_token}/decision`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: `{"padding":"${"x".repeat(8_200)}"}`,
+        },
+        new Map(),
+      );
+      const invalidJson = await requestWithTransientProxyRetry(
+        `/api/shared/${offer.share_token}/decision`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{",
+        },
+        new Map(),
+      );
+      const baseDecision = {
+        target_kind: "base",
+        target_id: shared.base_revision.id,
+        expected_base_revision: shared.base_revision.revision,
+        expected_active_scope_revision: shared.active_scope_revision,
+        pin,
+        outcome: "accepted",
+      };
+      const wrongPin = await request(
+        `/api/shared/${offer.share_token}/decision`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...baseDecision, pin: pin === "000000" ? "000001" : "000000" }),
+        },
+        new Map(),
+      );
+      const staleView = await request(
+        `/api/shared/${offer.share_token}/decision`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...baseDecision, expected_base_revision: shared.base_revision.revision + 1 }),
+        },
+        new Map(),
+      );
+      if (
+        wrongOrigin.status !== 403 ||
+        oversized.status !== 413 ||
+        invalidJson.status !== 400 ||
+        wrongPin.status !== 400 ||
+        staleView.status !== 409
+      ) {
+        return {
+          status: 0,
+          body: `Decision endpoint status checks failed: origin=${wrongOrigin.status}, size=${oversized.status}, JSON=${invalidJson.status}, PIN=${wrongPin.status}, stale=${staleView.status}.`,
+        };
+      }
+      const decisionResponse = await request(
+        `/api/shared/${offer.share_token}/decision`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(baseDecision) },
+        new Map(),
+      );
+      let decision;
+      try {
+        decision = JSON.parse(decisionResponse.body);
+      } catch {
+        const diagnostic = decisionResponse.body
+          .slice(0, 300)
+          .replaceAll(pin, "[redacted]")
+          .replaceAll(supabaseServiceKey, "[redacted]");
+        return {
+          status: 0,
+          body: `Decision response was not JSON (HTTP ${decisionResponse.status}, ${decisionResponse.headers.get("content-type") ?? "no content type"}): ${diagnostic}`,
+        };
+      }
+      if (decisionResponse.status !== 200 || decision?.outcome !== "accepted")
         return { status: 0, body: "Could not accept the current smoke offer revision." };
       const { data: items, error: itemsError } = await contractor
         .from("offer_items")
@@ -1299,9 +1571,25 @@ const steps = [
         effects: [{ itemId: item.id, before, after: { ...before, quantity: 2 } }],
         commercial_adjustment_minor: "0",
       };
-      return { status: 200, location: "", body: "Accepted current base revision and prepared its item effect." };
+      return {
+        status: 200,
+        location: "",
+        body: "Accepted current base revision through the public endpoint and prepared its item effect.",
+      };
     },
     { status: 200, body: "Accepted current base revision" },
+  ],
+  [
+    "accepted base decision is read-only and includes its recorded result",
+    async () => {
+      const page = await request(`/shared/${reusedShareToken}`, {}, new Map());
+      return page;
+    },
+    {
+      status: 200,
+      body: ["Accepted offer", "Decision recorded"],
+      absentBody: ["Your decision", "Accept offer", "Six-digit offer PIN"],
+    },
   ],
   [
     "accepted overview shows effective values and history navigation",
@@ -1442,7 +1730,18 @@ const steps = [
       if (!reusedShareToken) return { status: 0, body: "Missing accepted offer share token." };
       const anonymous = await request(`/shared/${reusedShareToken}`, {}, new Map());
       const signedIn = await request(`/shared/${reusedShareToken}`);
-      return { ...anonymous, signedIn, body: `${anonymous.body} signed-in-status:${signedIn.status}` };
+      const state = await request(`/api/shared/${reusedShareToken}/state`, {}, new Map());
+      try {
+        displayedChangeState = JSON.parse(state.body);
+      } catch {
+        displayedChangeState = null;
+      }
+      return {
+        ...anonymous,
+        signedIn,
+        state,
+        body: `${anonymous.body} signed-in-status:${signedIn.status} state:${state.status}:${state.headers.get("cache-control")}:${state.headers.get("referrer-policy")}`,
+      };
     },
     {
       status: 200,
@@ -1453,33 +1752,144 @@ const steps = [
         "Add one smoke-tested work item unit",
         "not included in the current total",
         "Proposed price impact",
+        "Accept change",
+        "Reject change",
+        "Six-digit offer PIN",
       ],
-      absentBody: ["Accept offer", "Reject offer", "PIN", "price_breakdown", "labor_hours_per_unit"],
+      absentBody: ["Accept offer", "Reject offer", "price_breakdown", "labor_hours_per_unit"],
       check: (actual) =>
-        actual.body.includes("signed-in-status:200") && (actual.body.match(/3,00 zł/g) ?? []).length >= 2,
+        actual.body.includes("signed-in-status:200") &&
+        actual.body.includes("state:200:no-store:no-referrer") &&
+        displayedChangeState?.target_kind === "change" &&
+        displayedChangeState?.target_id === publishedChangeId &&
+        (actual.body.match(/3,00 zł/g) ?? []).length >= 2,
+    },
+  ],
+  [
+    "superseded open proposal is blocked until the refreshed page shows the replacement",
+    async () => {
+      if (!displayedChangeState || !reusedShareToken) return { status: 0, body: "Missing displayed decision state." };
+      replacedSmokeChangeId = publishedChangeId;
+      const replacement = await request(`/api/offers/${reusedOfferId}/changes/`, {
+        method: "POST",
+        form: {
+          change_json: JSON.stringify({
+            ...publishableChange,
+            expected_pending_change_id: replacedSmokeChangeId,
+            supersession_confirmed: true,
+            description: "Corrected smoke-tested change",
+          }),
+        },
+      });
+      if (replacement.status !== 201) return { status: 0, body: "Could not publish the replacement proposal." };
+      try {
+        publishedChangeId = JSON.parse(replacement.body).changeId;
+      } catch {
+        return { status: 0, body: "Could not read the replacement proposal ID." };
+      }
+      const staleDecision = await request(
+        `/api/shared/${reusedShareToken}/decision`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            target_kind: "change",
+            target_id: replacedSmokeChangeId,
+            expected_base_revision: displayedChangeState.base_revision,
+            expected_active_scope_revision: displayedChangeState.active_scope_revision,
+            pin: reusedOfferPin,
+            outcome: "accepted",
+          }),
+        },
+        new Map(),
+      );
+      const state = await request(`/api/shared/${reusedShareToken}/state`, {}, new Map());
+      const refreshedPage = await request(`/shared/${reusedShareToken}`, {}, new Map());
+      let currentState;
+      try {
+        currentState = JSON.parse(state.body);
+      } catch {
+        currentState = null;
+      }
+      return {
+        ...refreshedPage,
+        body: `${refreshedPage.body} conflict:${staleDecision.status} state:${state.status}:${currentState?.target_id ?? "missing"}`,
+      };
+    },
+    {
+      status: 200,
+      body: ["Corrected smoke-tested change", "Accept change", "conflict:409", `state:200:`],
+      check: (actual) => actual.body.includes(`state:200:${publishedChangeId}`),
     },
   ],
   [
     "rejected change stays in history and leaves the active amount unchanged",
     async () => {
-      const { error } = await sharedClient.rpc("decide_shared_offer_change", {
+      const { data: shared, error: sharedError } = await sharedClient.rpc("get_shared_offer", {
         p_share_token: reusedShareToken,
-        p_pin: reusedOfferPin,
-        p_offer_change_id: publishedChangeId,
-        p_outcome: "rejected",
-        p_rejection_comment: "Customer declined this change",
       });
-      if (error) return { status: 0, body: "Could not reject the smoke proposal." };
+      if (sharedError || !shared?.active_scope_revision)
+        return { status: 0, body: "Could not read the current scope revision." };
+      const rejected = await request(
+        `/api/shared/${reusedShareToken}/decision`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            target_kind: "change",
+            target_id: publishedChangeId,
+            expected_base_revision: shared.base_revision.revision,
+            expected_active_scope_revision: shared.active_scope_revision,
+            pin: reusedOfferPin,
+            outcome: "rejected",
+            rejection_comment: "Customer declined this change",
+          }),
+        },
+        new Map(),
+      );
+      if (rejected.status !== 200) return { status: 0, body: "Could not reject the smoke proposal." };
+      const retryBody = JSON.stringify({
+        target_kind: "change",
+        target_id: publishedChangeId,
+        expected_base_revision: shared.base_revision.revision,
+        expected_active_scope_revision: shared.active_scope_revision,
+        pin: reusedOfferPin,
+        outcome: "rejected",
+        rejection_comment: "Customer declined this change",
+      });
+      for (let retry = 0; retry < 1; retry += 1) {
+        const response = await request(
+          `/api/shared/${reusedShareToken}/decision`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: retryBody,
+          },
+          new Map(),
+        );
+        if (response.status !== 200)
+          return { status: 0, body: "Idempotent decision retry did not return its original result." };
+      }
+      const limited = await request(
+        `/api/shared/${reusedShareToken}/decision`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: retryBody,
+        },
+        new Map(),
+      );
       const detail = await request(`/offers/${reusedOfferId}`);
       const history = await request(`/offers/${reusedOfferId}/history`);
+      const customerPage = await request(`/shared/${reusedShareToken}`, {}, new Map());
       return {
         ...detail,
-        body: `${detail.body} history-reason:${history.body.includes("Customer declined this change")}`,
+        body: `${detail.body} history-reason:${history.body.includes("Customer declined this change")} limited:${limited.status} customer-result:${customerPage.body.includes("Customer comment: Customer declined this change")}:${customerPage.body.includes("Decision recorded")}`,
       };
     },
     {
       status: 200,
-      body: ['data-current-amount-minor="300"', "history-reason:true"],
+      body: ['data-current-amount-minor="300"', "history-reason:true", "limited:429", "customer-result:true:true"],
       absentBody: ["waiting for customer approval"],
     },
   ],

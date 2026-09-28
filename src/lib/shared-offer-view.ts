@@ -6,6 +6,8 @@ export type SharedChangeStatus = "pending" | "accepted" | "rejected" | "agreed" 
 
 export interface SharedOfferView {
   status: SharedOfferStatus;
+  baseRevision: { id: string; revision: number; status: SharedOfferStatus; decidedAt: string | null };
+  activeScopeRevision: number;
   currencyCode: string;
   scope: string;
   items: {
@@ -19,10 +21,12 @@ export interface SharedOfferView {
   totalMinor: string;
   deadline: string;
   changes: {
+    id: string;
     description: string;
     status: SharedChangeStatus;
     priceDeltaMinor: string;
     deadlineDeltaDays: number | null;
+    decision: { outcome: "accepted" | "rejected"; rejectionComment: string | null; decidedAt: string } | null;
   }[];
 }
 
@@ -46,6 +50,12 @@ function minor(value: unknown): string | null {
 
 export type SharedOfferLoadResult = { kind: "available"; view: SharedOfferView } | { kind: "unavailable" };
 
+export function getSharedDecisionTarget(view: SharedOfferView): { kind: "base" | "change"; id: string } | null {
+  if (view.baseRevision.status === "pending") return { kind: "base", id: view.baseRevision.id };
+  const pendingChange = view.changes.find((change) => change.status === "pending");
+  return pendingChange ? { kind: "change", id: pendingChange.id } : null;
+}
+
 export async function loadSharedOfferView(token: string): Promise<SharedOfferLoadResult> {
   if (!UUID_PATTERN.test(token)) return { kind: "unavailable" };
   const client = createAnonymousClient();
@@ -60,6 +70,12 @@ export async function loadSharedOfferView(token: string): Promise<SharedOfferLoa
   if (error || !projection) return { kind: "unavailable" };
 
   const status = text(projection.status);
+  const baseRevision = record(projection.base_revision);
+  const baseRevisionId = baseRevision && text(baseRevision.id);
+  const baseRevisionNumber = baseRevision?.revision;
+  const baseRevisionStatus = baseRevision && text(baseRevision.status);
+  const decidedAt = baseRevision && (baseRevision.decided_at === null ? null : text(baseRevision.decided_at));
+  const activeScopeRevision = projection.active_scope_revision;
   const currencyCode = text(projection.currency_code);
   const totalMinor = minor(projection.active_amount_minor);
   const deadline = text(projection.active_deadline);
@@ -74,7 +90,17 @@ export async function loadSharedOfferView(token: string): Promise<SharedOfferLoa
     scope === null ||
     !activeScope ||
     !Array.isArray(activeScope.items) ||
-    !Array.isArray(projection.changes)
+    !Array.isArray(projection.changes) ||
+    !baseRevisionId ||
+    !UUID_PATTERN.test(baseRevisionId) ||
+    typeof baseRevisionNumber !== "number" ||
+    !Number.isSafeInteger(baseRevisionNumber) ||
+    baseRevisionNumber < 1 ||
+    !baseRevisionStatus ||
+    !offerStatuses.has(baseRevisionStatus as SharedOfferStatus) ||
+    typeof activeScopeRevision !== "number" ||
+    !Number.isSafeInteger(activeScopeRevision) ||
+    activeScopeRevision < 1
   )
     return { kind: "unavailable" };
 
@@ -96,12 +122,35 @@ export async function loadSharedOfferView(token: string): Promise<SharedOfferLoa
   const changes: SharedOfferView["changes"] = [];
   for (const rawChange of projection.changes) {
     const change = record(rawChange);
+    const id = change && text(change.id);
     const description = change && text(change.description);
     const changeStatus = change && text(change.status);
     const priceDeltaMinor = change && minor(change.price_delta_minor);
     const deadlineDeltaDays = change?.deadline_delta_days;
+    const rawDecision = change?.decision;
+    let decision: SharedOfferView["changes"][number]["decision"] = null;
+    if (rawDecision !== null && rawDecision !== undefined) {
+      const decisionRecord = record(rawDecision);
+      const outcome = decisionRecord && text(decisionRecord.outcome);
+      const decisionAt = decisionRecord && text(decisionRecord.decided_at);
+      const rejectionComment = decisionRecord?.rejection_comment;
+      if (
+        !decisionRecord ||
+        (outcome !== "accepted" && outcome !== "rejected") ||
+        !decisionAt ||
+        (rejectionComment !== null && typeof rejectionComment !== "string")
+      )
+        return { kind: "unavailable" };
+      decision = {
+        outcome,
+        decidedAt: decisionAt,
+        rejectionComment: typeof rejectionComment === "string" ? rejectionComment : null,
+      };
+    }
     if (
       !change ||
+      !id ||
+      !UUID_PATTERN.test(id) ||
       !description ||
       !changeStatus ||
       !changeStatuses.has(changeStatus as SharedChangeStatus) ||
@@ -110,10 +159,12 @@ export async function loadSharedOfferView(token: string): Promise<SharedOfferLoa
     )
       return { kind: "unavailable" };
     changes.push({
+      id,
       description,
       status: changeStatus as SharedChangeStatus,
       priceDeltaMinor,
       deadlineDeltaDays: deadlineDeltaDays,
+      decision,
     });
   }
 
@@ -121,6 +172,13 @@ export async function loadSharedOfferView(token: string): Promise<SharedOfferLoa
     kind: "available",
     view: {
       status: status as SharedOfferStatus,
+      baseRevision: {
+        id: baseRevisionId,
+        revision: baseRevisionNumber,
+        status: baseRevisionStatus as SharedOfferStatus,
+        decidedAt,
+      },
+      activeScopeRevision,
       currencyCode,
       scope,
       items,
