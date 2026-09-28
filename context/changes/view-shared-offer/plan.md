@@ -186,11 +186,11 @@ The new owner action works with existing `share_token` and `share_link_revoked_a
 
 #### Automated
 
-- [x] 2.1 `npm run smoke` covers public-page success and failure states, token isolation, private-field absence, and agreed-versus-pending values with local Supabase.
-- [x] 2.2 `npm run offer-contract` confirms the shared RPC still excludes private fields and revoked/rotated tokens cannot read an offer.
-- [x] 2.3 `npm run lint` and `npm run build` pass.
+- [x] 2.1 `npm run smoke` covers public-page success and failure states, token isolation, private-field absence, and agreed-versus-pending values with local Supabase. — d1632f6
+- [x] 2.2 `npm run offer-contract` confirms the shared RPC still excludes private fields and revoked/rotated tokens cannot read an offer. — d1632f6
+- [x] 2.3 `npm run lint` and `npm run build` pass. — d1632f6
 
 #### Manual
 
-- [x] 2.4 On mobile and desktop, the shared page clearly separates agreed terms, a pending proposal, and earlier change statuses; keyboard access and non-color status cues work.
-- [x] 2.5 A customer can revisit an active link without a PIN, while unknown, revoked, and replaced links show the same unavailable state.
+- [x] 2.4 On mobile and desktop, the shared page clearly separates agreed terms, a pending proposal, and earlier change statuses; keyboard access and non-color status cues work. — d1632f6
+- [x] 2.5 A customer can revisit an active link without a PIN, while unknown, revoked, and replaced links show the same unavailable state. — d1632f6

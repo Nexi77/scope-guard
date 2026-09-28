@@ -1,7 +1,7 @@
 ---
 change_id: view-shared-offer
 title: View shared offer
-status: implementing
+status: implemented
 created: 2026-09-27
 updated: 2026-09-28
 archived_at: null
