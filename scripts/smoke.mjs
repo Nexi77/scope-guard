@@ -1,8 +1,10 @@
 // Smoke test: proves the built app, the Cloudflare adapter and the Supabase auth flow still work together.
-// Zero dependencies on purpose. Run against a live server: BASE_URL=http://localhost:4321 node scripts/smoke.mjs
+// CI dispatches directly to the built Worker with SMOKE_TRANSPORT=harness.
+// A running server can also be tested with BASE_URL=http://localhost:4321 npm run smoke.
 
 import { URL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
+import { createTestHarness } from "wrangler";
 
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:4321";
 const supabaseUrl = process.env.API_URL ?? process.env.SUPABASE_URL;
@@ -11,6 +13,23 @@ const supabaseServiceKey = process.env.SECRET_KEY ?? process.env.SERVICE_ROLE_KE
 if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceKey) {
   throw new Error("Smoke test requires the local Supabase API_URL, ANON_KEY, and SECRET_KEY.");
 }
+const harness =
+  process.env.SMOKE_TRANSPORT === "harness"
+    ? createTestHarness({
+        workers: [
+          {
+            configPath: "./dist/server/wrangler.json",
+            secrets: {
+              SUPABASE_URL: supabaseUrl,
+              SUPABASE_KEY: supabaseAnonKey,
+              SUPABASE_SERVICE_ROLE_KEY: process.env.SERVICE_ROLE_KEY ?? supabaseServiceKey,
+            },
+          },
+        ],
+      })
+    : null;
+if (harness) await harness.listen();
+const appFetch = harness ? harness.fetch.bind(harness) : fetch;
 const sharedClient = createClient(supabaseUrl, supabaseAnonKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
@@ -38,7 +57,7 @@ function storeCookies(response, session) {
 }
 
 async function request(path, { method = "GET", form, headers = {}, body } = {}, session = jar) {
-  const response = await fetch(BASE_URL + path, {
+  const response = await appFetch(BASE_URL + path, {
     method,
     redirect: "manual",
     headers: {
@@ -2014,30 +2033,34 @@ const steps = [
 ];
 
 let failed = 0;
-for (const [name, run, expected] of steps) {
-  const actual = await run();
-  const normalizedBody = actual.body.replace(/&nbsp;|&#160;|&#xA0;/gi, " ").replace(/[\s\u00a0\u202f]+/g, " ");
-  const ok =
-    actual.status === expected.status &&
-    (expected.location === undefined || actual.location.startsWith(expected.location)) &&
-    (expected.locationPattern === undefined || expected.locationPattern.test(actual.location)) &&
-    (expected.body === undefined ||
-      (Array.isArray(expected.body)
-        ? expected.body.every((value) => normalizedBody.includes(value))
-        : normalizedBody.includes(expected.body))) &&
-    (expected.absentBody === undefined || expected.absentBody.every((value) => !normalizedBody.includes(value))) &&
-    (expected.check === undefined || expected.check(actual));
-  console.log(`${ok ? "PASS" : "FAIL"}  ${name}  -> ${actual.status} ${actual.location}`);
-  if (!ok) {
-    failed++;
-    console.log(`      expected ${expected.status} ${expected.location ?? expected.locationPattern ?? ""}`);
-    if (Array.isArray(expected.body)) {
-      const missing = expected.body.filter((value) => !normalizedBody.includes(value));
-      if (missing.length) console.log(`      missing visible text: ${missing.join(" | ")}`);
+try {
+  for (const [name, run, expected] of steps) {
+    const actual = await run();
+    const normalizedBody = actual.body.replace(/&nbsp;|&#160;|&#xA0;/gi, " ").replace(/[\s\u00a0\u202f]+/g, " ");
+    const ok =
+      actual.status === expected.status &&
+      (expected.location === undefined || actual.location.startsWith(expected.location)) &&
+      (expected.locationPattern === undefined || expected.locationPattern.test(actual.location)) &&
+      (expected.body === undefined ||
+        (Array.isArray(expected.body)
+          ? expected.body.every((value) => normalizedBody.includes(value))
+          : normalizedBody.includes(expected.body))) &&
+      (expected.absentBody === undefined || expected.absentBody.every((value) => !normalizedBody.includes(value))) &&
+      (expected.check === undefined || expected.check(actual));
+    console.log(`${ok ? "PASS" : "FAIL"}  ${name}  -> ${actual.status} ${actual.location}`);
+    if (!ok) {
+      failed++;
+      console.log(`      expected ${expected.status} ${expected.location ?? expected.locationPattern ?? ""}`);
+      if (Array.isArray(expected.body)) {
+        const missing = expected.body.filter((value) => !normalizedBody.includes(value));
+        if (missing.length) console.log(`      missing visible text: ${missing.join(" | ")}`);
+      }
+      if (actual.status === 0) console.log(`      ${actual.body}`);
     }
-    if (actual.status === 0) console.log(`      ${actual.body}`);
   }
+} finally {
+  await harness?.close();
 }
 
 console.log(failed ? `\n${failed} step(s) failed` : "\nAll smoke steps passed");
-process.exit(failed ? 1 : 0);
+process.exitCode = failed ? 1 : 0;

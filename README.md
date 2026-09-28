@@ -41,20 +41,19 @@ Route protection is defined in `src/middleware.ts`. The dashboard intentionally 
 - `npm run lint` — run ESLint.
 - `npx astro check` — run Astro and TypeScript diagnostics.
 - `npm run build` — build the Cloudflare Worker application.
-- `npm run smoke` — exercise the HTTP authentication flow against a running server.
+- `npm run smoke` — exercise the offer flow against a running Worker, or use `SMOKE_TRANSPORT=harness` to test the built Worker directly.
 - `npm run offer-contract` — verify the local Supabase offer and decision contract.
 
 ## Verification
 
-The smoke test requires a reachable local Supabase instance with email confirmation disabled, as configured in `supabase/config.toml`. It also needs the local API URL and anon key to accept its test offer through the customer decision RPC.
+The smoke test requires a reachable local Supabase instance with email confirmation disabled, as configured in `supabase/config.toml`. It uses the local API URL, anon key, and service role key. CI runs the production build through Cloudflare's test harness, so it does not need a separate `wrangler dev` process.
 
 ```bash
-npm run build
-npm run preview -- --port 4321
 set -a
-source <(npx supabase status -o env | grep -E '^(API_URL|ANON_KEY)=')
+source <(npx supabase status -o env | grep -E '^(API_URL|ANON_KEY|SECRET_KEY|SERVICE_ROLE_KEY)=')
 set +a
-BASE_URL=http://localhost:4321 npm run smoke
+SUPABASE_URL="$API_URL" SUPABASE_KEY="$ANON_KEY" npm run build
+SMOKE_TRANSPORT=harness npm run smoke
 ```
 
 CI runs linting, Astro diagnostics, the production build, the offer-contract test, and the auth smoke test. The smoke job starts local Supabase and supplies ephemeral credentials; no repository secrets are required for it.
