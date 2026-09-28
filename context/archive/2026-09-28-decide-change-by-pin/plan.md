@@ -237,7 +237,7 @@ Configure the server secret and Worker binding, deploy and verify the endpoint, 
 
 #### Manual
 
-- [ ] 1.4 With local Supabase and Worker preview configured, a revoked link and repeated wrong PIN attempts cannot reach a customer decision; no PIN or service credential appears in the browser network response, URL, or application logs. — Rechecked 2026-09-28: revoked link unavailable; wrong PIN left the decision pending and the field cleared; PIN absent from URL. Network response and application log inspection remain pending.
+- [x] 1.4 With local Supabase and Worker preview configured, a revoked link and repeated wrong PIN attempts cannot reach a customer decision; no PIN or service credential appears in the browser network response, URL, or application logs. — Rechecked 2026-09-28: revoked link unavailable; wrong PIN left the decision pending and the field cleared; PIN absent from URL. User confirmed the network response and application log checks are complete.
 
 ### Phase 2: Customer Review and Stale-View Experience
 
@@ -249,7 +249,7 @@ Configure the server secret and Worker binding, deploy and verify the endpoint, 
 
 #### Manual
 
-- [ ] 2.4 On phone and desktop, accept and reject from a shared link with the PIN; rejection requires a comment, the result is understandable without color, and keyboard and screen-reader focus reaches errors and the outcome. — Rechecked 2026-09-28 on desktop: accept/reject, required comment, keyboard order, error-summary focus, and recorded outcomes verified. Phone viewport and actual screen-reader announcement remain pending.
+- [x] 2.4 On phone and desktop, accept and reject from a shared link with the PIN; rejection requires a comment, the result is understandable without color, and keyboard and screen-reader focus reaches errors and the outcome. — Rechecked 2026-09-28 on desktop: accept/reject, required comment, keyboard order, error-summary focus, and recorded outcomes verified. User confirmed the phone viewport and screen-reader checks are complete.
 - [x] 2.5 Leave an offer or change decision page open, alter the offer as contractor, and confirm the page warns and blocks submission until refresh; then review and decide the new state. — 6e9c304
 
 ### Phase 3: Create a New Offer from a Rejected Offer
@@ -271,4 +271,4 @@ Configure the server secret and Worker binding, deploy and verify the endpoint, 
 - Stale view: left the customer page open, superseded its pending change as contractor, observed disabled decision controls and the inline warning/toast, refreshed, reviewed the replacement terms, and accepted it.
 - Rejected-offer copy: opened the owner action, verified editable prefilled details, changed scope and price, created a distinct pending offer and link, set a fresh PIN separately, and accepted it. The source remained rejected with its original reason and terms.
 - Revoked link: revoked the test offer's link and confirmed the shared page showed “Offer unavailable.”
-- Scope limits: these checks used the local preview at desktop size. Phone viewport, actual assistive-technology output, and browser network/application log inspection were not available in this pass; items 1.4 and 2.4 remain unchecked for those parts.
+- Scope limits: these checks used the local preview at desktop size. Phone viewport, actual assistive-technology output, and browser network/application log inspection were not available in this pass. The user later confirmed those remaining checks are complete; see the 1.4 and 2.4 row notes.
