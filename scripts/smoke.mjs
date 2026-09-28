@@ -1806,6 +1806,28 @@ const steps = [
       } catch {
         return { status: 0, body: "Could not read the replacement proposal ID." };
       }
+      const history = await request(`/offers/${reusedOfferId}/history`);
+      const replacementEvents = [
+        ...history.body.matchAll(
+          /data-history-kind="([^"]+)" data-history-at="([^"]+)" data-history-id="([^"]+)" data-history-priority="(\d+)"/g,
+        ),
+      ].map((match) => ({ kind: match[1], at: match[2], id: match[3], priority: Number(match[4]) }));
+      const replacedIndex = replacementEvents.findIndex(
+        (event) => event.kind === "change-replacement" && event.id === replacedSmokeChangeId,
+      );
+      const replacementHistoryIsOrdered =
+        history.status === 200 &&
+        replacedIndex >= 0 &&
+        replacementEvents[replacedIndex].at === replacementEvents[replacedIndex + 1]?.at &&
+        replacementEvents[replacedIndex + 1]?.kind === "change" &&
+        replacementEvents[replacedIndex + 1]?.id === publishedChangeId &&
+        replacementEvents[replacedIndex].priority < replacementEvents[replacedIndex + 1].priority &&
+        history.body.includes(
+          `/history?target=${replacedSmokeChangeId}&amp;target_kind=change#change-${replacedSmokeChangeId}`,
+        ) &&
+        history.body.includes(
+          `/history?target=${publishedChangeId}&amp;target_kind=change#change-${publishedChangeId}`,
+        );
       const staleDecision = await request(
         `/api/shared/${reusedShareToken}/decision`,
         {
@@ -1832,12 +1854,18 @@ const steps = [
       }
       return {
         ...refreshedPage,
-        body: `${refreshedPage.body} conflict:${staleDecision.status} state:${state.status}:${currentState?.target_id ?? "missing"}`,
+        body: `${refreshedPage.body} replacement-history:${replacementHistoryIsOrdered} conflict:${staleDecision.status} state:${state.status}:${currentState?.target_id ?? "missing"}`,
       };
     },
     {
       status: 200,
-      body: ["Corrected smoke-tested change", "Accept change", "conflict:409", `state:200:`],
+      body: [
+        "Corrected smoke-tested change",
+        "Accept change",
+        "replacement-history:true",
+        "conflict:409",
+        `state:200:`,
+      ],
       check: (actual) => actual.body.includes(`state:200:${publishedChangeId}`),
     },
   ],
@@ -1901,14 +1929,31 @@ const steps = [
       const detail = await request(`/offers/${reusedOfferId}`);
       const history = await request(`/offers/${reusedOfferId}/history`);
       const customerPage = await request(`/shared/${reusedShareToken}`, {}, new Map());
+      const { data: recordedDecision, error: decisionError } = await admin
+        .from("change_decisions")
+        .select("decided_at, outcome, rejection_comment")
+        .eq("offer_change_id", publishedChangeId)
+        .single();
+      if (decisionError) return { status: 0, body: "Could not read the recorded rejection decision." };
+      const historyDecisionEvent = [
+        ...history.body.matchAll(/data-history-kind="([^"]+)" data-history-at="([^"]+)" data-history-id="([^"]+)"/g),
+      ].find((match) => match[1] === "change-decision" && match[3] === publishedChangeId);
       return {
         ...detail,
-        body: `${detail.body} history-reason:${history.body.includes("Customer declined this change")} limited:${limited.status} customer-result:${customerPage.body.includes("Customer comment: Customer declined this change")}:${customerPage.body.includes("Decision recorded")}`,
+        body: `${detail.body} history-reason:${history.body.includes("Customer declined this change")} history-decision-time:${historyDecisionEvent?.[2] === recordedDecision.decided_at} history-decision-outcome:${recordedDecision.outcome === "rejected"} history-decision-reason:${recordedDecision.rejection_comment === "Customer declined this change"} limited:${limited.status} customer-result:${customerPage.body.includes("Customer comment: Customer declined this change")}:${customerPage.body.includes("Decision recorded")}`,
       };
     },
     {
       status: 200,
-      body: ['data-current-amount-minor="300"', "history-reason:true", "limited:429", "customer-result:true:true"],
+      body: [
+        'data-current-amount-minor="300"',
+        "history-reason:true",
+        "history-decision-time:true",
+        "history-decision-outcome:true",
+        "history-decision-reason:true",
+        "limited:429",
+        "customer-result:true:true",
+      ],
       absentBody: ["waiting for customer approval"],
     },
   ],

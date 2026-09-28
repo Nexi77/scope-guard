@@ -845,6 +845,28 @@ async function run() {
     targetedHistoryPage.events[0]?.kind === "change" && targetedHistoryPage.events[0]?.id === currentProposalId,
     "targeted history paging must begin at the exact proposal even when it is beyond the first page",
   );
+  const anonymousHistoryError = await expectError(
+    anonymous.rpc("get_contractor_offer_history_page", {
+      p_offer_id: revisionOffer.id,
+      p_cursor: null,
+      p_page_size: 2,
+      p_target_record_id: null,
+      p_target_record_kind: null,
+    }),
+    "read a contractor history page anonymously",
+  );
+  expect(anonymousHistoryError.code === "42501", "anonymous clients must not execute the contractor history RPC");
+  const replacementEventIndex = historyEvents.findIndex(
+    (event) => event.kind === "change-replacement" && event.id === oldProposalId,
+  );
+  expect(
+    replacementEventIndex >= 0 &&
+      historyEvents[replacementEventIndex].at === historyEvents[replacementEventIndex + 1]?.at &&
+      historyEvents[replacementEventIndex + 1]?.kind === "change" &&
+      historyEvents[replacementEventIndex + 1]?.id === currentProposalId &&
+      historyEvents[replacementEventIndex].priority < historyEvents[replacementEventIndex + 1].priority,
+    "same-transaction proposal replacement must appear immediately before successor creation",
+  );
   const foreignHistoryError = await expectError(
     contractorB.client.rpc("get_contractor_offer_history_page", {
       p_offer_id: revisionOffer.id,

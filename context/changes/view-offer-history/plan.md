@@ -208,22 +208,22 @@ Apply the additive migration before deploying a history page that reads replacem
 
 #### Automated
 
-- [x] 2.1 `npm run offer-contract` verifies owner isolation, stable tie ordering, cursor continuity without duplicates or missing events, and no dated event for old null timestamps.
-- [x] 2.2 `npm run smoke` verifies contractor history access, chronological event labels, decision reasons, replacement links, pending anchors, and complete navigation across more than one page.
-- [x] 2.3 `npm run lint` and `npm run build` pass.
+- [x] 2.1 `npm run offer-contract` verifies owner isolation, stable tie ordering, cursor continuity without duplicates or missing events, and no dated event for old null timestamps. — 18967bb
+- [x] 2.2 `npm run smoke` verifies contractor history access, chronological event labels, decision reasons, replacement links, pending anchors, and complete navigation across more than one page. — 18967bb
+- [x] 2.3 `npm run lint` and `npm run build` pass. — 18967bb
 
 #### Manual
 
-- [ ] 2.4 On desktop and phone, browse an offer with several pages: creation, decision, replacement, and zero-impact correction remain understandable and every page is reachable by keyboard.
-- [ ] 2.5 Check that pending and rejected effects do not change the amount, deadline, or work shown on the current offer; capture before/after screenshots for the UI change.
-- [ ] 2.6 From the current offer, activate “Review pending change” and confirm the exact proposal details open with a visible target, including when the proposal is outside the first history page and after refresh or Back.
+- [x] 2.4 On desktop and phone, browse an offer with several pages: creation, decision, replacement, and zero-impact correction remain understandable and every page is reachable by keyboard. — 18967bb
+- [x] 2.5 Check that pending and rejected effects do not change the amount, deadline, or work shown on the current offer; capture before/after screenshots for the UI change. — 18967bb
+- [x] 2.6 From the current offer, activate “Review pending change” and confirm the exact proposal details open with a visible target, including when the proposal is outside the first history page and after refresh or Back. — 18967bb
 
 ### Phase 3: Verify History and Current-State Boundaries
 
 #### Automated
 
-- [ ] 3.1 `npm run offer-contract`, `npm run smoke`, `npm run lint`, and `npm run build` pass against a configured local Supabase environment.
-- [ ] 3.2 Existing anonymous and foreign offer checks still return the established redirect or neutral unavailable response without exposing another contractor's history.
+- [x] 3.1 `npm run offer-contract`, `npm run smoke`, `npm run lint`, and `npm run build` pass against a configured local Supabase environment.
+- [x] 3.2 Existing anonymous and foreign offer checks still return the established redirect or neutral unavailable response without exposing another contractor's history.
 
 #### Manual
 
