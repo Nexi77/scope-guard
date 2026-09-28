@@ -1,7 +1,7 @@
 ---
 change_id: view-offer-history
 title: View offer history
-status: planned
+status: implementing
 created: 2026-09-28
 updated: 2026-09-28
 archived_at: null

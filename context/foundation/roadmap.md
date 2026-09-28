@@ -51,7 +51,7 @@ ScopeGuard gathers agreements about changes raised during a renovation or instal
 | S-04 | record-offer-change | estimate a change against agreed work and confirm its explained price and deadline impact | S-01, S-08 | FR-003; Business Logic; MS-02 | done |
 | S-05 | view-shared-offer | use a permanent link to see only the assigned offer and its current status | S-01, S-04 | FR-005, FR-006 | done |
 | S-06 | decide-change-by-pin | use a permanent link and PIN to approve or reject a pending change | S-03, S-04, S-05 | US-01, FR-007 | done |
-| S-07 | view-offer-history | see the current offer plus the history of changes and customer decisions | S-04, S-06 | FR-004, FR-005 | planning |
+| S-07 | view-offer-history | see the current offer plus the history of changes and customer decisions | S-04, S-06 | FR-004, FR-005 | in-progress |
 
 ## Streams
 
@@ -190,7 +190,7 @@ Update from the assisted-estimation research on `2026-09-23`: offer creation, br
 - **Blockers:** —
 - **Unknowns:** —
 - **Risk:** The view must distinguish pending, approved, and rejected changes without introducing full offer versioning, which is excluded from the MVP.
-- **Status:** planning
+- **Status:** in-progress
 
 ## Backlog Handoff
 

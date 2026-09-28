@@ -197,8 +197,8 @@ Apply the additive migration before deploying a history page that reads replacem
 
 #### Automated
 
-- [ ] 1.1 Local migration applies and `npm run offer-contract` passes with dated future replacements and undated existing records.
-- [ ] 1.2 `npm run lint` and `npm run build` pass after the schema and contract changes.
+- [x] 1.1 Local migration applies and `npm run offer-contract` passes with dated future replacements and undated existing records.
+- [x] 1.2 `npm run lint` and `npm run build` pass after the schema and contract changes.
 
 #### Manual
 

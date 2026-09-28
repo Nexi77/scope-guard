@@ -574,7 +574,7 @@ async function run() {
   expect(thirdRevision === 3, "second base replacement must advance to revision three");
   const { data: revisionHistory, error: revisionHistoryError } = await contractorA.client
     .from("offer_revisions")
-    .select("id, revision, status, superseded_by, decision_outcome, items")
+    .select("id, revision, status, superseded_by, superseded_at, decision_outcome, items")
     .eq("offer_id", revisionOffer.id)
     .order("revision");
   expectNoError(revisionHistoryError, "read superseded base revision history");
@@ -582,8 +582,11 @@ async function run() {
     revisionHistory.length === 3 &&
       revisionHistory[0].status === "superseded" &&
       revisionHistory[0].superseded_by === revisionHistory[1].id &&
+      Boolean(revisionHistory[0].superseded_at) &&
       revisionHistory[1].status === "superseded" &&
       revisionHistory[1].superseded_by === revisionHistory[2].id &&
+      Boolean(revisionHistory[1].superseded_at) &&
+      revisionHistory[2].superseded_at === null &&
       revisionHistory[2].status === "pending" &&
       revisionHistory[0].items[0].quantity === 1 &&
       revisionHistory[2].items[0].quantity === 3,
@@ -750,7 +753,7 @@ async function run() {
   const currentProposalId = await publishChange(1, "Corrected proposal", 1_500, 2, oldProposalId, true);
   const { data: proposalRows, error: proposalRowsError } = await contractorA.client
     .from("offer_changes")
-    .select("id, status, proposal_revision, superseded_by, estimate_snapshot, item_effects")
+    .select("id, status, proposal_revision, superseded_by, superseded_at, estimate_snapshot, item_effects")
     .eq("offer_id", revisionOffer.id)
     .order("proposal_revision");
   expectNoError(proposalRowsError, "read immutable proposal revisions");
@@ -758,6 +761,8 @@ async function run() {
     proposalRows.length === 2 &&
       proposalRows[0].status === "superseded" &&
       proposalRows[0].superseded_by === currentProposalId &&
+      Boolean(proposalRows[0].superseded_at) &&
+      proposalRows[1].superseded_at === null &&
       proposalRows[1].status === "pending" &&
       proposalRows[1].estimate_snapshot.scope_revision === 1 &&
       Array.isArray(proposalRows[1].item_effects),
@@ -1147,7 +1152,7 @@ async function run() {
   );
   const { data: itemEditRevisions, error: itemEditRevisionsError } = await contractorA.client
     .from("offer_revisions")
-    .select("id, revision, status, superseded_by, base_amount_minor, items")
+    .select("id, revision, status, superseded_by, superseded_at, base_amount_minor, items")
     .eq("offer_id", newOffer.offer_id)
     .order("revision");
   expectNoError(itemEditRevisionsError, "read revisions after pending item edit");
@@ -1156,6 +1161,8 @@ async function run() {
       itemEditRevisions[0].revision === 1 &&
       itemEditRevisions[0].status === "superseded" &&
       itemEditRevisions[0].superseded_by === itemEditRevisions[1].id &&
+      Boolean(itemEditRevisions[0].superseded_at) &&
+      itemEditRevisions[1].superseded_at === null &&
       itemEditRevisions[0].base_amount_minor === 12_347 &&
       itemEditRevisions[0].items[0].quantity === 1.25 &&
       itemEditRevisions[1].revision === 2 &&
