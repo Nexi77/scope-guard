@@ -237,29 +237,29 @@ Configure the server secret and Worker binding, deploy and verify the endpoint, 
 
 #### Manual
 
-- [ ] 1.4 With local Supabase and Worker preview configured, a revoked link and repeated wrong PIN attempts cannot reach a customer decision; no PIN or service credential appears in the browser network response, URL, or application logs. — deferred to Phase 2 UI verification per user decision
+- [x] 1.4 With local Supabase and Worker preview configured, a revoked link and repeated wrong PIN attempts cannot reach a customer decision; no PIN or service credential appears in the browser network response, URL, or application logs.
 
 ### Phase 2: Customer Review and Stale-View Experience
 
 #### Automated
 
-- [x] 2.1 `npm run offer-contract` passes for base/change decisions, stale conflicts, one-time activation, rejected history, and anonymous access isolation.
-- [x] 2.2 `npm run smoke` passes through the shared page and public endpoint for both initial-offer and change decisions, including refresh after stale state and the contractor-visible result.
-- [x] 2.3 `npm run lint` and `npm run build` pass after the shared UI and state check are added.
+- [x] 2.1 `npm run offer-contract` passes for base/change decisions, stale conflicts, one-time activation, rejected history, and anonymous access isolation. — 310d2db
+- [x] 2.2 `npm run smoke` passes through the shared page and public endpoint for both initial-offer and change decisions, including refresh after stale state and the contractor-visible result. — 310d2db
+- [x] 2.3 `npm run lint` and `npm run build` pass after the shared UI and state check are added. — 310d2db
 
 #### Manual
 
-- [x] 2.4 On phone and desktop, accept and reject from a shared link with the PIN; rejection requires a comment, the result is understandable without color, and keyboard and screen-reader focus reaches errors and the outcome.
-- [x] 2.5 Leave an offer or change decision page open, alter the offer as contractor, and confirm the page warns and blocks submission until refresh; then review and decide the new state.
+- [x] 2.4 On phone and desktop, accept and reject from a shared link with the PIN; rejection requires a comment, the result is understandable without color, and keyboard and screen-reader focus reaches errors and the outcome. — 310d2db
+- [x] 2.5 Leave an offer or change decision page open, alter the offer as contractor, and confirm the page warns and blocks submission until refresh; then review and decide the new state. — 310d2db
 
 ### Phase 3: Create a New Offer from a Rejected Offer
 
 #### Automated
 
-- [ ] 3.1 The rejected-offer action and authorized create page prefill only data belonging to the signed-in contractor.
-- [ ] 3.2 Creating from a rejected offer produces an independent pending offer with fresh PIN/link and leaves the original decision and history unchanged.
-- [ ] 3.3 `npm run smoke` covers valid, malformed, and foreign source IDs; `npm run offer-contract` runs if database-level behavior changes; `npm run lint` and `npm run build` pass.
+- [x] 3.1 The rejected-offer action and authorized create page prefill only data belonging to the signed-in contractor.
+- [x] 3.2 Creating from a rejected offer produces an independent pending offer with fresh PIN/link and leaves the original decision and history unchanged.
+- [x] 3.3 `npm run smoke` covers valid, malformed, and foreign source IDs; `npm run offer-contract` runs if database-level behavior changes; `npm run lint` and `npm run build` pass.
 
 #### Manual
 
-- [ ] 3.4 From a rejected offer, create a new draft, verify prefilled editable details, submit it, and confirm the new and original offers retain separate status, credentials, and history.
+- [x] 3.4 From a rejected offer, create a new draft, verify prefilled editable details, submit it, and confirm the new and original offers retain separate status, credentials, and history.

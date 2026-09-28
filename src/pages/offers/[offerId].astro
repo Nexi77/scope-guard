@@ -105,6 +105,14 @@ const formatDate = (date: string) =>
                 <p class="text-muted-foreground mt-2 text-sm">No rejection reason was recorded.</p>
               )}
               <p class="mt-3 text-sm">
+                <a
+                  class="bg-primary text-primary-foreground focus-visible:ring-ring inline-flex rounded-md px-4 py-2 font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+                  href={`/offers/new?source=${encodeURIComponent(offer.id)}`}
+                >
+                  Create new offer from this one
+                </a>
+              </p>
+              <p class="mt-3 text-sm">
                 <a class="text-primary underline underline-offset-4" href={`/offers/${offer.id}/history`}>
                   Review the decision
                 </a>

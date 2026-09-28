@@ -23,6 +23,13 @@ interface Customer {
 interface CreateOfferFormProps {
   customers: Customer[];
   templates: OfferChangeTemplate[];
+  initialOffer?: {
+    sourceOfferId: string;
+    customerId: string;
+    baseScope: string;
+    deadline: string;
+    items: OfferItemDraft[];
+  } | null;
   serverError?: string | null;
   created: boolean;
   createdOfferId?: string | null;
@@ -38,18 +45,28 @@ const today = new Date().toISOString().slice(0, 10);
 function CreateOfferForm({
   customers,
   templates,
+  initialOffer = null,
   serverError,
   created,
   createdOfferId,
   createdCustomerId,
 }: CreateOfferFormProps) {
   const initialItemId = useId();
-  const [customerMode, setCustomerMode] = useState<CustomerMode>(customers.length ? "existing" : "new");
-  const [customerId, setCustomerId] = useState("");
+  const initialCustomerIsAvailable = Boolean(
+    initialOffer && customers.some((customer) => customer.id === initialOffer.customerId),
+  );
+  const [customerMode, setCustomerMode] = useState<CustomerMode>(
+    initialCustomerIsAvailable || customers.length ? "existing" : "new",
+  );
+  const [customerId, setCustomerId] = useState(initialCustomerIsAvailable ? (initialOffer?.customerId ?? "") : "");
   const [customerName, setCustomerName] = useState("");
-  const [baseScope, setBaseScope] = useState("");
-  const [deadline, setDeadline] = useState("");
-  const [items, setItems] = useState<OfferItemDraft[]>(() => [{ ...EMPTY_OFFER_ITEM, id: initialItemId }]);
+  const [baseScope, setBaseScope] = useState(initialOffer?.baseScope ?? "");
+  const [deadline, setDeadline] = useState(initialOffer?.deadline ?? "");
+  const [items, setItems] = useState<OfferItemDraft[]>(() =>
+    initialOffer
+      ? initialOffer.items.map((item, index) => ({ ...item, id: `source-item-${index + 1}` }))
+      : [{ ...EMPTY_OFFER_ITEM, id: initialItemId }],
+  );
   const [itemTemplateIds, setItemTemplateIds] = useState<Record<string, string>>({});
   const [pendingTemplate, setPendingTemplate] = useState<PendingTemplate>(null);
   const [itemError, setItemError] = useState<OfferItemValidationError | null>(null);
@@ -216,6 +233,7 @@ function CreateOfferForm({
     <form
       method="POST"
       action="/api/offers"
+      data-prefilled-source-offer={initialOffer?.sourceOfferId}
       className="bg-card max-w-2xl space-y-6 rounded-xl border p-5 shadow-sm sm:p-6"
       noValidate
       onSubmit={handleSubmit}
@@ -226,6 +244,13 @@ function CreateOfferForm({
         name="confirm_duplicate"
         value={customerMode === "new" && confirmDuplicate ? "true" : "false"}
       />
+
+      {initialOffer ? (
+        <p className="border-primary/30 bg-primary/5 rounded-md border p-4 text-sm" role="status">
+          This is a new offer based on the rejected one. Review and edit the details; submitting creates a separate
+          offer and share link. Set its own customer PIN from the new offer before requesting a decision.
+        </p>
+      ) : null}
 
       {hasErrors ? (
         <section

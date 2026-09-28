@@ -4,7 +4,62 @@ import ContractorNavigation from "@/components/dashboard/ContractorNavigation.as
 import CreateOfferForm from "@/components/offers/CreateOfferForm";
 import Layout from "@/layouts/Layout.astro";
 import { STARTER_OFFER_CHANGE_TEMPLATES, type OfferChangeTemplate } from "@/lib/offer-change-templates";
+import { draftFromOfferItem } from "@/lib/offer-items";
+import { UUID_PATTERN } from "@/lib/offer-change-request";
 import { createClient } from "@/lib/supabase";
+
+interface RejectedOfferSource {
+  id: string;
+  customer_id: string;
+  base_scope: string;
+  base_deadline: string;
+}
+
+interface RejectedOfferItem {
+  id: string;
+  name: string;
+  quantity: number | string;
+  unit: string;
+  specification: string;
+  selling_rate_minor: number | string;
+  labor_hours_per_unit: number | string;
+}
+
+function isRejectedOfferSource(value: unknown): value is RejectedOfferSource {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "id" in value &&
+    typeof value.id === "string" &&
+    "customer_id" in value &&
+    typeof value.customer_id === "string" &&
+    "base_scope" in value &&
+    typeof value.base_scope === "string" &&
+    "base_deadline" in value &&
+    typeof value.base_deadline === "string"
+  );
+}
+
+function isRejectedOfferItem(value: unknown): value is RejectedOfferItem {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "id" in value &&
+    typeof value.id === "string" &&
+    "name" in value &&
+    typeof value.name === "string" &&
+    "quantity" in value &&
+    (typeof value.quantity === "number" || typeof value.quantity === "string") &&
+    "unit" in value &&
+    typeof value.unit === "string" &&
+    "specification" in value &&
+    typeof value.specification === "string" &&
+    "selling_rate_minor" in value &&
+    (typeof value.selling_rate_minor === "number" || typeof value.selling_rate_minor === "string") &&
+    "labor_hours_per_unit" in value &&
+    (typeof value.labor_hours_per_unit === "number" || typeof value.labor_hours_per_unit === "string")
+  );
+}
 
 const { user } = Astro.locals;
 const supabase = createClient(Astro.request.headers, Astro.cookies);
@@ -24,6 +79,55 @@ const [customersResult, templatesResult] = supabase
       { data: [], error: null },
     ];
 const customers = customersResult.data ?? [];
+const sourceOfferId = Astro.url.searchParams.get("source");
+const sourceIdIsValid = sourceOfferId !== null && UUID_PATTERN.test(sourceOfferId);
+const sourceOfferResult =
+  sourceIdIsValid && supabase
+    ? await supabase
+        .from("offers")
+        .select("id, customer_id, base_scope, base_deadline")
+        .eq("id", sourceOfferId)
+        .eq("contractor_id", user?.id ?? "")
+        .eq("status", "rejected")
+        .maybeSingle()
+    : null;
+const rawSourceOffer: unknown = sourceOfferResult?.data;
+const sourceOffer = isRejectedOfferSource(rawSourceOffer) ? rawSourceOffer : null;
+const sourceItemsResult =
+  sourceOffer && supabase
+    ? await supabase
+        .from("offer_items")
+        .select("id, name, quantity, unit, specification, selling_rate_minor, labor_hours_per_unit")
+        .eq("offer_id", sourceOffer.id)
+        .eq("contractor_id", user?.id ?? "")
+        .order("position", { ascending: true })
+    : null;
+const rawSourceItems: unknown = sourceItemsResult?.data;
+const sourceItems = Array.isArray(rawSourceItems) && rawSourceItems.every(isRejectedOfferItem) ? rawSourceItems : null;
+const sourceCustomerAvailable = sourceOffer
+  ? customers.some((customer) => customer.id === sourceOffer.customer_id)
+  : false;
+const initialOffer =
+  sourceOffer && sourceItems?.length && sourceCustomerAvailable && !sourceItemsResult?.error
+    ? {
+        sourceOfferId: sourceOffer.id,
+        customerId: sourceOffer.customer_id,
+        baseScope: sourceOffer.base_scope,
+        deadline: sourceOffer.base_deadline,
+        items: sourceItems.map((item) => {
+          const draft = draftFromOfferItem(item);
+          return {
+            name: draft.name,
+            quantity: draft.quantity,
+            unit: draft.unit,
+            specification: draft.specification,
+            sellingRate: draft.sellingRate,
+            laborHours: draft.laborHours,
+          };
+        }),
+      }
+    : null;
+const sourceOfferUnavailable = sourceOfferId !== null && initialOffer === null;
 const rawTemplates: unknown = templatesResult.data;
 const savedTemplates: OfferChangeTemplate[] = Array.isArray(rawTemplates)
   ? (
@@ -87,6 +191,11 @@ const createdCustomerId = Astro.url.searchParams.get("customer");
           Capture the original scope, itemized price, deadline, and customer before changes begin.
         </p>
       </div>
+      {sourceOfferUnavailable ? (
+        <p class="border-destructive/30 bg-destructive/5 mb-4 rounded-md border p-4 text-sm" role="status">
+          The rejected offer is unavailable. You can create a new offer and enter its details manually.
+        </p>
+      ) : null}
       {customersError ? (
         <p
           class="border-destructive/30 bg-destructive/10 text-destructive rounded-md border px-4 py-3 text-sm"
@@ -108,6 +217,7 @@ const createdCustomerId = Astro.url.searchParams.get("customer");
             client:load
             customers={customers}
             templates={templates}
+            initialOffer={initialOffer}
             serverError={error}
             created={created}
             createdOfferId={createdOfferId}

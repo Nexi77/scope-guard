@@ -223,6 +223,10 @@ let reusedOfferId = null;
 let reusedItemIds = [];
 let historyLockedOfferId = null;
 let rejectedOfferId = null;
+let copiedOfferId = null;
+let rejectedOfferPin = null;
+let copiedOfferPin = null;
+let rejectedOfferSnapshot = null;
 let publishedChangeId = null;
 let reusedOfferPin = null;
 let reusedShareToken = null;
@@ -918,6 +922,15 @@ const steps = [
       });
       rejectedOfferId = offerIdFromLocation(creation.location);
       if (!rejectedOfferId) return { status: 0, body: "Could not create rejected fixture." };
+      const pinResponse = await request(`/api/offers/${rejectedOfferId}/pin`, { method: "POST" });
+      try {
+        rejectedOfferPin = JSON.parse(pinResponse.body).pin ?? null;
+      } catch {
+        rejectedOfferPin = null;
+      }
+      if (pinResponse.status !== 200 || !/^\d{6}$/.test(rejectedOfferPin ?? "")) {
+        return { status: 0, body: "Could not prepare an independently pinned rejected fixture." };
+      }
       const { error: offerError } = await admin.from("offers").update({ status: "rejected" }).eq("id", rejectedOfferId);
       const { error: revisionError } = await admin
         .from("offer_revisions")
@@ -930,6 +943,30 @@ const steps = [
         .eq("offer_id", rejectedOfferId)
         .eq("revision", 1);
       if (offerError || revisionError) return { status: 0, body: "Could not mark rejected fixture." };
+      const { data: sourceOffer, error: sourceOfferError } = await admin
+        .from("offers")
+        .select("id, customer_id, status, base_scope, base_deadline, share_token, pin_hash")
+        .eq("id", rejectedOfferId)
+        .single();
+      const { data: sourceRevision, error: sourceRevisionError } = await admin
+        .from("offer_revisions")
+        .select(
+          "revision, base_scope, base_amount_minor, base_deadline, status, decision_outcome, decided_at, rejection_comment, items",
+        )
+        .eq("offer_id", rejectedOfferId)
+        .eq("revision", 1)
+        .single();
+      if (sourceOfferError || sourceRevisionError) {
+        const snapshotFailures = [
+          ["offer", sourceOfferError],
+          ["revision", sourceRevisionError],
+        ]
+          .filter(([, error]) => error)
+          .map(([table, error]) => `${table}:${error.code ?? "unknown"}:${error.message}`)
+          .join("; ");
+        return { status: 0, body: `Could not snapshot rejected fixture: ${snapshotFailures}` };
+      }
+      rejectedOfferSnapshot = { offer: sourceOffer, revision: sourceRevision };
       const detail = await request(`/offers/${rejectedOfferId}`);
       const history = await request(`/offers/${rejectedOfferId}/history`);
       return {
@@ -939,8 +976,127 @@ const steps = [
     },
     {
       status: 200,
-      body: ["Customer rejected this offer", "Customer declined the first offer", "history:200:true"],
+      body: [
+        "Customer rejected this offer",
+        "Customer declined the first offer",
+        "Create new offer from this one",
+        "history:200:true",
+      ],
       absentBody: ["Current agreed work", "Record a change", 'aria-label="Offer actions"'],
+    },
+  ],
+  [
+    "rejected offer prefill is owner-scoped and creates an independent offer",
+    async () => {
+      if (!rejectedOfferId || !rejectedOfferSnapshot) return { status: 0, body: "Missing rejected offer fixture." };
+      const sourceForm = await request(`/offers/new?source=${encodeURIComponent(rejectedOfferId)}`);
+      const malformed = await request("/offers/new?source=not-a-uuid");
+      const unknown = await request("/offers/new?source=00000000-0000-4000-8000-000000000000");
+      const foreign = await request(`/offers/new?source=${encodeURIComponent(foreignOfferId)}`);
+      const pending = await request(`/offers/new?source=${encodeURIComponent(reusedOfferId)}`);
+      const prefillVisible =
+        sourceForm.status === 200 &&
+        sourceForm.body.includes(`data-prefilled-source-offer="${rejectedOfferId}"`) &&
+        sourceForm.body.includes(`name="customer_id" value="${rejectedOfferSnapshot.offer.customer_id}"`) &&
+        sourceForm.body.includes("Rejected initial smoke scope") &&
+        sourceForm.body.includes("Smoke-tested work item") &&
+        sourceForm.body.includes("Smoke-tested specification");
+      if (!prefillVisible) return { ...sourceForm, body: `${sourceForm.body} authorized-prefill-missing` };
+      const creation = await request("/api/offers", {
+        method: "POST",
+        form: {
+          customer_id: rejectedOfferSnapshot.offer.customer_id,
+          base_scope: "Rejected initial smoke scope",
+          base_deadline: rejectedOfferSnapshot.offer.base_deadline,
+          items_json: JSON.stringify(standardItems(700)),
+        },
+      });
+      copiedOfferId = offerIdFromLocation(creation.location);
+      if (creation.status !== 302 || !copiedOfferId || copiedOfferId === rejectedOfferId) {
+        return { ...creation, body: "Independent offer was not created." };
+      }
+      const newPinResponse = await request(`/api/offers/${copiedOfferId}/pin`, { method: "POST" });
+      try {
+        copiedOfferPin = JSON.parse(newPinResponse.body).pin ?? null;
+      } catch {
+        copiedOfferPin = null;
+      }
+      const { data: copiedOffer, error: copiedOfferError } = await admin
+        .from("offers")
+        .select("id, customer_id, status, base_scope, base_deadline, share_token, pin_hash")
+        .eq("id", copiedOfferId)
+        .single();
+      const { data: copiedRevisions, error: copiedRevisionError } = await admin
+        .from("offer_revisions")
+        .select("revision, status, decision_outcome, decided_at, rejection_comment, items")
+        .eq("offer_id", copiedOfferId);
+      const { data: unchangedOffer, error: unchangedOfferError } = await admin
+        .from("offers")
+        .select("id, customer_id, status, base_scope, base_deadline, share_token, pin_hash")
+        .eq("id", rejectedOfferId)
+        .single();
+      const { data: unchangedRevision, error: unchangedRevisionError } = await admin
+        .from("offer_revisions")
+        .select(
+          "revision, base_scope, base_amount_minor, base_deadline, status, decision_outcome, decided_at, rejection_comment, items",
+        )
+        .eq("offer_id", rejectedOfferId)
+        .eq("revision", 1)
+        .single();
+      const historyUnchanged =
+        JSON.stringify(unchangedOffer) === JSON.stringify(rejectedOfferSnapshot.offer) &&
+        JSON.stringify(unchangedRevision) === JSON.stringify(rejectedOfferSnapshot.revision);
+      const sourceItems = rejectedOfferSnapshot.revision.items;
+      const copiedItems = copiedRevisions?.[0]?.items;
+      const copiedItemIdsAreNew =
+        Array.isArray(sourceItems) &&
+        Array.isArray(copiedItems) &&
+        sourceItems.length === copiedItems.length &&
+        sourceItems.every((item, index) => item.id !== copiedItems[index]?.id);
+      const itemSnapshotsMatch =
+        Array.isArray(sourceItems) &&
+        Array.isArray(copiedItems) &&
+        JSON.stringify(
+          sourceItems.map((item) => Object.fromEntries(Object.entries(item).filter(([key]) => key !== "id"))),
+        ) ===
+          JSON.stringify(
+            copiedItems.map((item) => Object.fromEntries(Object.entries(item).filter(([key]) => key !== "id"))),
+          );
+      const independentDraft =
+        !copiedOfferError &&
+        !copiedRevisionError &&
+        copiedOffer.status === "pending" &&
+        copiedOffer.customer_id === rejectedOfferSnapshot.offer.customer_id &&
+        copiedOffer.base_scope === rejectedOfferSnapshot.offer.base_scope &&
+        copiedOffer.base_deadline === rejectedOfferSnapshot.offer.base_deadline &&
+        copiedItemIdsAreNew &&
+        itemSnapshotsMatch &&
+        copiedOffer.share_token !== rejectedOfferSnapshot.offer.share_token &&
+        copiedOffer.pin_hash !== rejectedOfferSnapshot.offer.pin_hash &&
+        Boolean(copiedOffer.pin_hash) &&
+        newPinResponse.status === 200 &&
+        /^\d{6}$/.test(copiedOfferPin ?? "") &&
+        copiedRevisions.length === 1 &&
+        copiedRevisions[0].status === "pending" &&
+        copiedRevisions[0].decision_outcome === null &&
+        copiedRevisions[0].decided_at === null &&
+        copiedRevisions[0].rejection_comment === null;
+      const invalidSourcesSafe = [malformed, unknown, foreign, pending].every(
+        (response) =>
+          response.status === 200 &&
+          response.body.includes("The rejected offer is unavailable") &&
+          !response.body.includes("Foreign contractor private scope") &&
+          !response.body.includes("Rejected initial smoke scope"),
+      );
+      const page = await request(`/offers/${rejectedOfferId}`);
+      return {
+        ...page,
+        body: `prefill:${prefillVisible} independent:${independentDraft} source-history:${historyUnchanged} invalid-sources:${invalidSourcesSafe} errors:${copiedOfferError?.message ?? "none"}/${copiedRevisionError?.message ?? "none"}/${unchangedOfferError?.message ?? "none"}/${unchangedRevisionError?.message ?? "none"}`,
+      };
+    },
+    {
+      status: 200,
+      body: "prefill:true independent:true source-history:true invalid-sources:true errors:none/none/none/none",
     },
   ],
   [
@@ -951,12 +1107,18 @@ const steps = [
       const change = await request(`/offers/${reusedOfferId}/changes/new`);
       return {
         ...edit,
-        body: `${edit.body} overview-actions:${detail.body.includes('aria-label="Offer actions"')} change:${change.status}:${change.body.includes("Change proposal unavailable")}`,
+        body: `${edit.body} overview-actions:${detail.body.includes('aria-label="Offer actions"')} rejected-copy:${detail.body.includes("Create new offer from this one")} change:${change.status}:${change.body.includes("Change proposal unavailable")}`,
       };
     },
     {
       status: 200,
-      body: ["Edit pending offer", "Replace the pending version", "overview-actions:true", "change:404:true"],
+      body: [
+        "Edit pending offer",
+        "Replace the pending version",
+        "overview-actions:true",
+        "rejected-copy:false",
+        "change:404:true",
+      ],
       check: (actual) =>
         actual.body.includes("Edit pending offer") && !actual.body.includes("Change proposal unavailable"),
     },
