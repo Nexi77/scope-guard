@@ -9,7 +9,7 @@ main_goal: speed
 top_blocker: time
 milestone_id: first-validated-change-approval
 milestone_seq: 1
-milestone_status: open
+milestone_status: done
 ---
 
 # Roadmap: ScopeGuard
@@ -20,7 +20,7 @@ milestone_status: open
 
 ## Milestone
 
-**M-1: First working change-approval flow** — Status: open
+**M-1: First working change-approval flow** — Status: done
 
 - **Intent:** Deliver a complete, secure flow in which the contractor prepares a structured offer, receives assistance estimating a scope change, and obtains the customer's confirmation of its price and deadline impact. The result must appear in the current offer and its history.
 - **Source materials:** `context/foundation/prd.md` (v1); `context/changes/record-offer-change/research.md`; user's request to support automated estimation across renovation, electrical, and plumbing work and introduce the required structured offer model.
@@ -225,6 +225,8 @@ Slice boundary: S-08 delivers itemized offer preparation and review, including t
 - **AI, accounting integrations, broad notifications, and analytics** — Why parked: PRD §Non-Goals.
 
 ## Milestone History
+
+- **M-1: First working change-approval flow** (`first-validated-change-approval`) — closed 2026-09-28. All roadmap foundations and slices are done; the contractor can prepare structured offers, record and approve changes, and review offer history.
 
 ## Done
 
