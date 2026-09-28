@@ -368,7 +368,7 @@ export default function OfferChangeForm({
       if (action === "record") {
         window.location.assign(
           result.changeId
-            ? `/offers/${encodeURIComponent(offerId)}/history#change-${encodeURIComponent(result.changeId)}`
+            ? `/offers/${encodeURIComponent(offerId)}/history?target=${encodeURIComponent(result.changeId)}&target_kind=change#change-${encodeURIComponent(result.changeId)}`
             : `/offers/${encodeURIComponent(offerId)}`,
         );
         return;

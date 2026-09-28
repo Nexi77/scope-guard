@@ -1,8 +1,10 @@
 // Smoke test: proves the built app, the Cloudflare adapter and the Supabase auth flow still work together.
-// Zero dependencies on purpose. Run against a live server: BASE_URL=http://localhost:4321 node scripts/smoke.mjs
+// CI dispatches directly to the built Worker with SMOKE_TRANSPORT=harness.
+// A running server can also be tested with BASE_URL=http://localhost:4321 npm run smoke.
 
 import { URL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
+import { createTestHarness } from "wrangler";
 
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:4321";
 const supabaseUrl = process.env.API_URL ?? process.env.SUPABASE_URL;
@@ -11,6 +13,23 @@ const supabaseServiceKey = process.env.SECRET_KEY ?? process.env.SERVICE_ROLE_KE
 if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceKey) {
   throw new Error("Smoke test requires the local Supabase API_URL, ANON_KEY, and SECRET_KEY.");
 }
+const harness =
+  process.env.SMOKE_TRANSPORT === "harness"
+    ? createTestHarness({
+        workers: [
+          {
+            configPath: "./dist/server/wrangler.json",
+            secrets: {
+              SUPABASE_URL: supabaseUrl,
+              SUPABASE_KEY: supabaseAnonKey,
+              SUPABASE_SERVICE_ROLE_KEY: process.env.SERVICE_ROLE_KEY ?? supabaseServiceKey,
+            },
+          },
+        ],
+      })
+    : null;
+if (harness) await harness.listen();
+const appFetch = harness ? harness.fetch.bind(harness) : fetch;
 const sharedClient = createClient(supabaseUrl, supabaseAnonKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
@@ -38,7 +57,7 @@ function storeCookies(response, session) {
 }
 
 async function request(path, { method = "GET", form, headers = {}, body } = {}, session = jar) {
-  const response = await fetch(BASE_URL + path, {
+  const response = await appFetch(BASE_URL + path, {
     method,
     redirect: "manual",
     headers: {
@@ -60,17 +79,16 @@ async function request(path, { method = "GET", form, headers = {}, body } = {}, 
 
 async function requestWithTransientProxyRetry(path, options, session) {
   let result;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
     result = await request(path, options, session);
     const transientProxyFailure =
       result.status === 500 &&
       result.headers.get("content-type")?.startsWith("text/plain") &&
       /Network connection lost/i.test(result.body);
-    if (!transientProxyFailure) return result;
-    // Retry only the explicitly safe validation and one-time PIN requests.
-    // If a PIN response was dropped, the next call replaces the undisclosed
-    // value and returns the current one.
-    await new Promise((resolve) => globalThis.setTimeout(resolve, 50));
+    if (!transientProxyFailure || attempt === 3) return result;
+    // Call this only for reads, validation, idempotent actions, and PIN
+    // generation. A lost PIN response can be replaced by the next attempt.
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 100 * 2 ** attempt));
   }
   return result;
 }
@@ -543,7 +561,7 @@ const steps = [
   [
     "initial PIN generation is returned once with no-store",
     async () => {
-      const result = await request(`/api/offers/${offerId}/pin`, { method: "POST" });
+      const result = await requestWithTransientProxyRetry(`/api/offers/${offerId}/pin`, { method: "POST" });
       try {
         firstGeneratedPin = JSON.parse(result.body).pin;
       } catch {
@@ -590,17 +608,17 @@ const steps = [
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "revoke" }),
       });
-      const invalidAction = await request(`/api/offers/${offerId}/share`, {
+      const invalidAction = await requestWithTransientProxyRetry(`/api/offers/${offerId}/share`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "reset" }),
       });
-      const crossOrigin = await request(`/api/offers/${offerId}/share`, {
+      const crossOrigin = await requestWithTransientProxyRetry(`/api/offers/${offerId}/share`, {
         method: "POST",
         headers: { Origin: "https://attacker.example", "Content-Type": "application/json" },
         body: JSON.stringify({ action: "revoke" }),
       });
-      const revoked = await request(`/api/offers/${offerId}/share`, {
+      const revoked = await requestWithTransientProxyRetry(`/api/offers/${offerId}/share`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "revoke" }),
@@ -874,7 +892,7 @@ const steps = [
     "foreign offer PIN cannot be managed by this contractor",
     async () => {
       if (!foreignOfferId) return { status: 0, location: "", body: "foreign offer unavailable" };
-      return request(`/api/offers/${foreignOfferId}/pin`, { method: "POST" });
+      return requestWithTransientProxyRetry(`/api/offers/${foreignOfferId}/pin`, { method: "POST" });
     },
     { status: 404, body: "Offer is unavailable", absentBody: ["pin_hash", "share_token"] },
   ],
@@ -882,7 +900,7 @@ const steps = [
     "foreign contractor share controls are unavailable",
     async () => {
       const page = await request(`/offers/${foreignOfferId}`);
-      const api = await request(`/api/offers/${foreignOfferId}/share`, {
+      const api = await requestWithTransientProxyRetry(`/api/offers/${foreignOfferId}/share`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "revoke" }),
@@ -1376,7 +1394,7 @@ const steps = [
   [
     "foreign offer change preview is unavailable",
     () =>
-      request(`/api/offers/${foreignOfferId}/changes/preview`, {
+      requestWithTransientProxyRetry(`/api/offers/${foreignOfferId}/changes/preview`, {
         method: "POST",
         form: { change_json: JSON.stringify({ expected_scope_revision: 1, description: "Foreign", effects: [] }) },
       }),
@@ -1410,7 +1428,7 @@ const steps = [
   [
     "foreign offer cannot be used to save a change template",
     () =>
-      request(`/api/offers/${foreignOfferId}/templates`, {
+      requestWithTransientProxyRetry(`/api/offers/${foreignOfferId}/templates`, {
         method: "POST",
         form: {
           template_json: JSON.stringify({
@@ -1665,7 +1683,7 @@ const steps = [
   [
     "foreign contractor's offer is unavailable for publication",
     () =>
-      request(`/api/offers/${foreignOfferId}/changes/`, {
+      requestWithTransientProxyRetry(`/api/offers/${foreignOfferId}/changes/`, {
         method: "POST",
         form: { change_json: JSON.stringify(publishableChange) },
       }),
@@ -1695,11 +1713,16 @@ const steps = [
     "pending proposal links to history without changing the active amount",
     async () => {
       const detail = await request(`/offers/${reusedOfferId}`);
-      const history = await request(`/offers/${reusedOfferId}/history`);
+      const history = await request(
+        `/offers/${reusedOfferId}/history?target=${publishedChangeId}&target_kind=change#change-${publishedChangeId}`,
+      );
+      const orderedHistory = await request(`/offers/${reusedOfferId}/history`);
       return {
         ...detail,
         body: `${detail.body} history-anchor:${history.body.includes(`id="change-${publishedChangeId}"`)}`,
         historyBody: history.body,
+        orderedHistoryBody: orderedHistory.body,
+        historyHeaders: history.headers,
       };
     },
     {
@@ -1707,18 +1730,32 @@ const steps = [
       body: ["waiting for customer approval", 'data-current-amount-minor="300"', "history-anchor:true"],
       check: (actual) => {
         const events = [
-          ...actual.historyBody.matchAll(
-            /data-history-kind="[^"]+" data-history-at="([^"]+)" data-history-id="([^"]+)"/g,
+          ...actual.orderedHistoryBody.matchAll(
+            /data-history-kind="([^"]+)" data-history-at="([^"]+)" data-history-id="([^"]+)" data-history-priority="(\d+)" data-history-stable-id="([^"]+)"/g,
           ),
-        ].map((match) => ({ at: Date.parse(match[1]), id: match[2] }));
+        ].map((match) => ({
+          kind: match[1],
+          at: Date.parse(match[2]),
+          id: match[3],
+          priority: Number(match[4]),
+          stableId: match[5],
+        }));
         return (
-          actual.body.includes(`/history#change-${publishedChangeId}`) &&
+          actual.body.includes(
+            `/history?target=${publishedChangeId}&amp;target_kind=change#change-${publishedChangeId}`,
+          ) &&
+          actual.historyHeaders.get("cache-control") === "no-store" &&
+          actual.historyBody.includes("history-target") &&
+          actual.historyBody.includes("Status at creation: pending") &&
           events.length >= 3 &&
           events.every(
             (event, index) =>
               index === 0 ||
               events[index - 1].at < event.at ||
-              (events[index - 1].at === event.at && events[index - 1].id.localeCompare(event.id) <= 0),
+              (events[index - 1].at === event.at &&
+                (events[index - 1].priority < event.priority ||
+                  (events[index - 1].priority === event.priority &&
+                    events[index - 1].stableId.localeCompare(event.stableId) < 0))),
           )
         );
       },
@@ -1787,6 +1824,28 @@ const steps = [
       } catch {
         return { status: 0, body: "Could not read the replacement proposal ID." };
       }
+      const history = await request(`/offers/${reusedOfferId}/history`);
+      const replacementEvents = [
+        ...history.body.matchAll(
+          /data-history-kind="([^"]+)" data-history-at="([^"]+)" data-history-id="([^"]+)" data-history-priority="(\d+)"/g,
+        ),
+      ].map((match) => ({ kind: match[1], at: match[2], id: match[3], priority: Number(match[4]) }));
+      const replacedIndex = replacementEvents.findIndex(
+        (event) => event.kind === "change-replacement" && event.id === replacedSmokeChangeId,
+      );
+      const replacementHistoryIsOrdered =
+        history.status === 200 &&
+        replacedIndex >= 0 &&
+        replacementEvents[replacedIndex].at === replacementEvents[replacedIndex + 1]?.at &&
+        replacementEvents[replacedIndex + 1]?.kind === "change" &&
+        replacementEvents[replacedIndex + 1]?.id === publishedChangeId &&
+        replacementEvents[replacedIndex].priority < replacementEvents[replacedIndex + 1].priority &&
+        history.body.includes(
+          `/history?target=${replacedSmokeChangeId}&amp;target_kind=change#change-${replacedSmokeChangeId}`,
+        ) &&
+        history.body.includes(
+          `/history?target=${publishedChangeId}&amp;target_kind=change#change-${publishedChangeId}`,
+        );
       const staleDecision = await request(
         `/api/shared/${reusedShareToken}/decision`,
         {
@@ -1813,12 +1872,18 @@ const steps = [
       }
       return {
         ...refreshedPage,
-        body: `${refreshedPage.body} conflict:${staleDecision.status} state:${state.status}:${currentState?.target_id ?? "missing"}`,
+        body: `${refreshedPage.body} replacement-history:${replacementHistoryIsOrdered} conflict:${staleDecision.status} state:${state.status}:${currentState?.target_id ?? "missing"}`,
       };
     },
     {
       status: 200,
-      body: ["Corrected smoke-tested change", "Accept change", "conflict:409", `state:200:`],
+      body: [
+        "Corrected smoke-tested change",
+        "Accept change",
+        "replacement-history:true",
+        "conflict:409",
+        `state:200:`,
+      ],
       check: (actual) => actual.body.includes(`state:200:${publishedChangeId}`),
     },
   ],
@@ -1882,15 +1947,66 @@ const steps = [
       const detail = await request(`/offers/${reusedOfferId}`);
       const history = await request(`/offers/${reusedOfferId}/history`);
       const customerPage = await request(`/shared/${reusedShareToken}`, {}, new Map());
+      const { data: recordedDecision, error: decisionError } = await admin
+        .from("change_decisions")
+        .select("decided_at, outcome, rejection_comment")
+        .eq("offer_change_id", publishedChangeId)
+        .single();
+      if (decisionError) return { status: 0, body: "Could not read the recorded rejection decision." };
+      const historyDecisionEvent = [
+        ...history.body.matchAll(/data-history-kind="([^"]+)" data-history-at="([^"]+)" data-history-id="([^"]+)"/g),
+      ].find((match) => match[1] === "change-decision" && match[3] === publishedChangeId);
       return {
         ...detail,
-        body: `${detail.body} history-reason:${history.body.includes("Customer declined this change")} limited:${limited.status} customer-result:${customerPage.body.includes("Customer comment: Customer declined this change")}:${customerPage.body.includes("Decision recorded")}`,
+        body: `${detail.body} history-reason:${history.body.includes("Customer declined this change")} history-decision-time:${historyDecisionEvent?.[2] === recordedDecision.decided_at} history-decision-outcome:${recordedDecision.outcome === "rejected"} history-decision-reason:${recordedDecision.rejection_comment === "Customer declined this change"} limited:${limited.status} customer-result:${customerPage.body.includes("Customer comment: Customer declined this change")}:${customerPage.body.includes("Decision recorded")}`,
       };
     },
     {
       status: 200,
-      body: ['data-current-amount-minor="300"', "history-reason:true", "limited:429", "customer-result:true:true"],
+      body: [
+        'data-current-amount-minor="300"',
+        "history-reason:true",
+        "history-decision-time:true",
+        "history-decision-outcome:true",
+        "history-decision-reason:true",
+        "limited:429",
+        "customer-result:true:true",
+      ],
       absentBody: ["waiting for customer approval"],
+    },
+  ],
+  [
+    "history cursor controls browse every event exactly once",
+    async () => {
+      const identities = [];
+      let pageCount = 0;
+      let current = await request(`/offers/${reusedOfferId}/history?page_size=2`);
+      while (pageCount < 20) {
+        if (current.status !== 200)
+          return { ...current, body: `History page failed: ${current.status} ${current.body}` };
+        pageCount += 1;
+        for (const [, kind, id] of current.body.matchAll(
+          /data-history-kind="([^"]+)" data-history-at="[^"]+" data-history-id="([^"]+)"/g,
+        ))
+          identities.push(`${kind}:${id}`);
+        const laterLink = current.body.match(/<a\b[^>]*href="([^"]+)"[^>]*>\s*Later events\s*→/);
+        if (!laterLink) break;
+        const targetUrl = new URL(laterLink[1].replaceAll("&amp;", "&"), BASE_URL);
+        current = await request(`${targetUrl.pathname}${targetUrl.search}`);
+      }
+      return {
+        status: 200,
+        body: `pages:${pageCount} events:${identities.length} unique:${new Set(identities).size}`,
+      };
+    },
+    {
+      status: 200,
+      check: (actual) => {
+        const values = Object.fromEntries(
+          [...actual.body.matchAll(/(pages|events|unique):(\d+)/g)].map((match) => [match[1], Number(match[2])]),
+        );
+        return values.pages >= 2 && values.events > 2 && values.events === values.unique;
+      },
     },
   ],
   [
@@ -1917,30 +2033,34 @@ const steps = [
 ];
 
 let failed = 0;
-for (const [name, run, expected] of steps) {
-  const actual = await run();
-  const normalizedBody = actual.body.replace(/&nbsp;|&#160;|&#xA0;/gi, " ").replace(/[\s\u00a0\u202f]+/g, " ");
-  const ok =
-    actual.status === expected.status &&
-    (expected.location === undefined || actual.location.startsWith(expected.location)) &&
-    (expected.locationPattern === undefined || expected.locationPattern.test(actual.location)) &&
-    (expected.body === undefined ||
-      (Array.isArray(expected.body)
-        ? expected.body.every((value) => normalizedBody.includes(value))
-        : normalizedBody.includes(expected.body))) &&
-    (expected.absentBody === undefined || expected.absentBody.every((value) => !normalizedBody.includes(value))) &&
-    (expected.check === undefined || expected.check(actual));
-  console.log(`${ok ? "PASS" : "FAIL"}  ${name}  -> ${actual.status} ${actual.location}`);
-  if (!ok) {
-    failed++;
-    console.log(`      expected ${expected.status} ${expected.location ?? expected.locationPattern ?? ""}`);
-    if (Array.isArray(expected.body)) {
-      const missing = expected.body.filter((value) => !normalizedBody.includes(value));
-      if (missing.length) console.log(`      missing visible text: ${missing.join(" | ")}`);
+try {
+  for (const [name, run, expected] of steps) {
+    const actual = await run();
+    const normalizedBody = actual.body.replace(/&nbsp;|&#160;|&#xA0;/gi, " ").replace(/[\s\u00a0\u202f]+/g, " ");
+    const ok =
+      actual.status === expected.status &&
+      (expected.location === undefined || actual.location.startsWith(expected.location)) &&
+      (expected.locationPattern === undefined || expected.locationPattern.test(actual.location)) &&
+      (expected.body === undefined ||
+        (Array.isArray(expected.body)
+          ? expected.body.every((value) => normalizedBody.includes(value))
+          : normalizedBody.includes(expected.body))) &&
+      (expected.absentBody === undefined || expected.absentBody.every((value) => !normalizedBody.includes(value))) &&
+      (expected.check === undefined || expected.check(actual));
+    console.log(`${ok ? "PASS" : "FAIL"}  ${name}  -> ${actual.status} ${actual.location}`);
+    if (!ok) {
+      failed++;
+      console.log(`      expected ${expected.status} ${expected.location ?? expected.locationPattern ?? ""}`);
+      if (Array.isArray(expected.body)) {
+        const missing = expected.body.filter((value) => !normalizedBody.includes(value));
+        if (missing.length) console.log(`      missing visible text: ${missing.join(" | ")}`);
+      }
+      if (actual.status === 0) console.log(`      ${actual.body}`);
     }
-    if (actual.status === 0) console.log(`      ${actual.body}`);
   }
+} finally {
+  await harness?.close();
 }
 
 console.log(failed ? `\n${failed} step(s) failed` : "\nAll smoke steps passed");
-process.exit(failed ? 1 : 0);
+process.exitCode = failed ? 1 : 0;

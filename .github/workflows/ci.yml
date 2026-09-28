@@ -46,19 +46,16 @@ jobs:
           source supabase.env
           set +a
           npm run offer-contract
-      - name: Configure secrets for build and preview
+      - name: Configure local build credentials
         run: |
           source supabase.env
-          printf 'SUPABASE_URL=%s\nSUPABASE_KEY=%s\n' "$API_URL" "$ANON_KEY" > .env
-          cp .env .dev.vars
+          printf 'SUPABASE_URL=%s\nSUPABASE_KEY=%s\nSUPABASE_SERVICE_ROLE_KEY=%s\n' "$API_URL" "$ANON_KEY" "$SERVICE_ROLE_KEY" > .env
       - run: npm run build
-      - name: Run smoke test against production preview
+      - name: Run smoke test with local Worker harness
         run: |
           set -a
           source supabase.env
           set +a
-          npm run preview -- --port 4321 &
-          for i in $(seq 1 60); do curl -sf -o /dev/null http://localhost:4321/auth/signin && break; sleep 1; done
-          BASE_URL=http://localhost:4321 npm run smoke
+          SMOKE_TRANSPORT=harness npm run smoke
       - if: always()
         run: supabase stop --no-backup

@@ -21,12 +21,9 @@ async function readBoundedBody(
   const chunks: Uint8Array[] = [];
   let size = 0;
   try {
-    let complete = false;
-    while (!complete) {
-      const result = await reader.read();
-      complete = result.done;
-      if (complete) continue;
-      const value = result.value;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
       size += value.byteLength;
       if (size > MAX_BODY_BYTES) {
         await reader.cancel().catch(() => undefined);
@@ -36,6 +33,8 @@ async function readBoundedBody(
     }
   } catch {
     return { kind: "invalid" };
+  } finally {
+    reader.releaseLock();
   }
   const bytes = new Uint8Array(size);
   let offset = 0;
@@ -91,7 +90,7 @@ export const POST: APIRoute = async (context) => {
   }
   let limiter: { limit(input: { key: string }): Promise<{ success: boolean }> } | undefined;
   try {
-    limiter = (env as unknown as { DECISION_LIMITER?: typeof limiter }).DECISION_LIMITER;
+    limiter = env.DECISION_LIMITER;
   } catch {
     return json({ error: "Decision service is unavailable." }, 503);
   }

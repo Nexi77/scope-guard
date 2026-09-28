@@ -130,7 +130,7 @@ const formatDate = (date: string) =>
               values.{" "}
               <a
                 class="text-primary font-medium underline underline-offset-4"
-                href={`/offers/${offer.id}/history#change-${pendingChangeId}`}
+                href={`/offers/${offer.id}/history?target=${encodeURIComponent(pendingChangeId)}&target_kind=change#change-${pendingChangeId}`}
               >
                 Review pending change
               </a>
