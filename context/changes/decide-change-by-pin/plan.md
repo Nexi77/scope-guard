@@ -237,7 +237,7 @@ Configure the server secret and Worker binding, deploy and verify the endpoint, 
 
 #### Manual
 
-- [x] 1.4 With local Supabase and Worker preview configured, a revoked link and repeated wrong PIN attempts cannot reach a customer decision; no PIN or service credential appears in the browser network response, URL, or application logs.
+- [x] 1.4 With local Supabase and Worker preview configured, a revoked link and repeated wrong PIN attempts cannot reach a customer decision; no PIN or service credential appears in the browser network response, URL, or application logs. — 21657bd
 
 ### Phase 2: Customer Review and Stale-View Experience
 
@@ -256,10 +256,10 @@ Configure the server secret and Worker binding, deploy and verify the endpoint, 
 
 #### Automated
 
-- [x] 3.1 The rejected-offer action and authorized create page prefill only data belonging to the signed-in contractor.
-- [x] 3.2 Creating from a rejected offer produces an independent pending offer with fresh PIN/link and leaves the original decision and history unchanged.
-- [x] 3.3 `npm run smoke` covers valid, malformed, and foreign source IDs; `npm run offer-contract` runs if database-level behavior changes; `npm run lint` and `npm run build` pass.
+- [x] 3.1 The rejected-offer action and authorized create page prefill only data belonging to the signed-in contractor. — 21657bd
+- [x] 3.2 Creating from a rejected offer produces an independent pending offer with fresh PIN/link and leaves the original decision and history unchanged. — 21657bd
+- [x] 3.3 `npm run smoke` covers valid, malformed, and foreign source IDs; `npm run offer-contract` runs if database-level behavior changes; `npm run lint` and `npm run build` pass. — 21657bd
 
 #### Manual
 
-- [x] 3.4 From a rejected offer, create a new draft, verify prefilled editable details, submit it, and confirm the new and original offers retain separate status, credentials, and history.
+- [x] 3.4 From a rejected offer, create a new draft, verify prefilled editable details, submit it, and confirm the new and original offers retain separate status, credentials, and history. — 21657bd
