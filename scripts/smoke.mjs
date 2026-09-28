@@ -60,17 +60,16 @@ async function request(path, { method = "GET", form, headers = {}, body } = {}, 
 
 async function requestWithTransientProxyRetry(path, options, session) {
   let result;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
     result = await request(path, options, session);
     const transientProxyFailure =
       result.status === 500 &&
       result.headers.get("content-type")?.startsWith("text/plain") &&
       /Network connection lost/i.test(result.body);
-    if (!transientProxyFailure) return result;
-    // Retry only the explicitly safe validation and one-time PIN requests.
-    // If a PIN response was dropped, the next call replaces the undisclosed
-    // value and returns the current one.
-    await new Promise((resolve) => globalThis.setTimeout(resolve, 50));
+    if (!transientProxyFailure || attempt === 3) return result;
+    // Call this only for reads, validation, idempotent actions, and PIN
+    // generation. A lost PIN response can be replaced by the next attempt.
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 100 * 2 ** attempt));
   }
   return result;
 }
@@ -543,7 +542,7 @@ const steps = [
   [
     "initial PIN generation is returned once with no-store",
     async () => {
-      const result = await request(`/api/offers/${offerId}/pin`, { method: "POST" });
+      const result = await requestWithTransientProxyRetry(`/api/offers/${offerId}/pin`, { method: "POST" });
       try {
         firstGeneratedPin = JSON.parse(result.body).pin;
       } catch {
@@ -590,17 +589,17 @@ const steps = [
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "revoke" }),
       });
-      const invalidAction = await request(`/api/offers/${offerId}/share`, {
+      const invalidAction = await requestWithTransientProxyRetry(`/api/offers/${offerId}/share`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "reset" }),
       });
-      const crossOrigin = await request(`/api/offers/${offerId}/share`, {
+      const crossOrigin = await requestWithTransientProxyRetry(`/api/offers/${offerId}/share`, {
         method: "POST",
         headers: { Origin: "https://attacker.example", "Content-Type": "application/json" },
         body: JSON.stringify({ action: "revoke" }),
       });
-      const revoked = await request(`/api/offers/${offerId}/share`, {
+      const revoked = await requestWithTransientProxyRetry(`/api/offers/${offerId}/share`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "revoke" }),
@@ -874,7 +873,7 @@ const steps = [
     "foreign offer PIN cannot be managed by this contractor",
     async () => {
       if (!foreignOfferId) return { status: 0, location: "", body: "foreign offer unavailable" };
-      return request(`/api/offers/${foreignOfferId}/pin`, { method: "POST" });
+      return requestWithTransientProxyRetry(`/api/offers/${foreignOfferId}/pin`, { method: "POST" });
     },
     { status: 404, body: "Offer is unavailable", absentBody: ["pin_hash", "share_token"] },
   ],
@@ -882,7 +881,7 @@ const steps = [
     "foreign contractor share controls are unavailable",
     async () => {
       const page = await request(`/offers/${foreignOfferId}`);
-      const api = await request(`/api/offers/${foreignOfferId}/share`, {
+      const api = await requestWithTransientProxyRetry(`/api/offers/${foreignOfferId}/share`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "revoke" }),
@@ -1376,7 +1375,7 @@ const steps = [
   [
     "foreign offer change preview is unavailable",
     () =>
-      request(`/api/offers/${foreignOfferId}/changes/preview`, {
+      requestWithTransientProxyRetry(`/api/offers/${foreignOfferId}/changes/preview`, {
         method: "POST",
         form: { change_json: JSON.stringify({ expected_scope_revision: 1, description: "Foreign", effects: [] }) },
       }),
@@ -1410,7 +1409,7 @@ const steps = [
   [
     "foreign offer cannot be used to save a change template",
     () =>
-      request(`/api/offers/${foreignOfferId}/templates`, {
+      requestWithTransientProxyRetry(`/api/offers/${foreignOfferId}/templates`, {
         method: "POST",
         form: {
           template_json: JSON.stringify({
@@ -1665,7 +1664,7 @@ const steps = [
   [
     "foreign contractor's offer is unavailable for publication",
     () =>
-      request(`/api/offers/${foreignOfferId}/changes/`, {
+      requestWithTransientProxyRetry(`/api/offers/${foreignOfferId}/changes/`, {
         method: "POST",
         form: { change_json: JSON.stringify(publishableChange) },
       }),
