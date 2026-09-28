@@ -227,5 +227,5 @@ Apply the additive migration before deploying a history page that reads replacem
 
 #### Manual
 
-- [x] 3.3 Follow the current offer → history → proposal details → current offer journey on desktop and phone, including a rejected change reason and an old undated replacement. — 13c00ed
-- [x] 3.4 Review screenshots for readable event order, page controls, empty state, and visible keyboard focus. — 13c00ed
+- [x] 3.3 Follow the current offer → history → proposal details → current offer journey on desktop and phone, including a rejected change reason and an old undated replacement. — 465a985
+- [x] 3.4 Review screenshots for readable event order, page controls, empty state, and visible keyboard focus. — 465a985
