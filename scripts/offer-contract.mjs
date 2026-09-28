@@ -845,6 +845,52 @@ async function run() {
     targetedHistoryPage.events[0]?.kind === "change" && targetedHistoryPage.events[0]?.id === currentProposalId,
     "targeted history paging must begin at the exact proposal even when it is beyond the first page",
   );
+  expect(
+    targetedHistoryPage.has_previous && targetedHistoryPage.previous_cursor,
+    "targeted later records need an earlier cursor",
+  );
+  const { data: earlierTargetPage, error: earlierTargetError } = await contractorA.client.rpc(
+    "get_contractor_offer_history_page",
+    {
+      p_offer_id: revisionOffer.id,
+      p_cursor: targetedHistoryPage.previous_cursor,
+      p_page_size: 2,
+      p_target_record_id: null,
+      p_target_record_kind: null,
+    },
+  );
+  expectNoError(earlierTargetError, "browse backward from a targeted history page");
+  const targetEventIndex = historyEvents.findIndex(
+    (event) => event.kind === "change" && event.id === currentProposalId,
+  );
+  expect(
+    targetEventIndex >= 2 &&
+      earlierTargetPage.events.length === 2 &&
+      earlierTargetPage.has_next &&
+      isDeepStrictEqual(
+        earlierTargetPage.events.map((event) => `${event.kind}:${event.id}`),
+        historyEvents.slice(targetEventIndex - 2, targetEventIndex).map((event) => `${event.kind}:${event.id}`),
+      ),
+    "backward history paging must return the immediately preceding events",
+  );
+  const { data: firstTargetPage, error: firstTargetError } = await contractorA.client.rpc(
+    "get_contractor_offer_history_page",
+    {
+      p_offer_id: revisionOffer.id,
+      p_cursor: null,
+      p_page_size: 2,
+      p_target_record_id: revisionHistory[0].id,
+      p_target_record_kind: "revision",
+    },
+  );
+  expectNoError(firstTargetError, "open the earliest revision at its history event");
+  expect(
+    firstTargetPage.events[0]?.kind === "revision" &&
+      firstTargetPage.events[0]?.id === revisionHistory[0].id &&
+      firstTargetPage.has_previous === false &&
+      firstTargetPage.previous_cursor === null,
+    "targeting the earliest event must not expose an empty earlier page",
+  );
   const anonymousHistoryError = await expectError(
     anonymous.rpc("get_contractor_offer_history_page", {
       p_offer_id: revisionOffer.id,
@@ -866,6 +912,49 @@ async function run() {
       historyEvents[replacementEventIndex + 1]?.id === currentProposalId &&
       historyEvents[replacementEventIndex].priority < historyEvents[replacementEventIndex + 1].priority,
     "same-transaction proposal replacement must appear immediately before successor creation",
+  );
+  const { error: oldRevisionTimestampError } = await admin
+    .from("offer_revisions")
+    .update({ superseded_at: null })
+    .eq("id", revisionHistory[0].id);
+  expectNoError(oldRevisionTimestampError, "emulate a pre-migration revision replacement");
+  const { error: oldProposalTimestampError } = await admin
+    .from("offer_changes")
+    .update({ superseded_at: null })
+    .eq("id", oldProposalId);
+  expectNoError(oldProposalTimestampError, "emulate a pre-migration proposal replacement");
+  const { data: undatedPage, error: undatedPageError } = await contractorA.client.rpc(
+    "get_contractor_offer_history_page",
+    {
+      p_offer_id: revisionOffer.id,
+      p_cursor: null,
+      p_page_size: 50,
+      p_target_record_id: null,
+      p_target_record_kind: null,
+    },
+  );
+  expectNoError(undatedPageError, "read pre-migration replacements");
+  expect(
+    undatedPage.events.some(
+      (event) =>
+        event.kind === "revision" &&
+        event.id === revisionHistory[0].id &&
+        event.revision.status === "superseded" &&
+        event.revision.superseded_at === null,
+    ) &&
+      undatedPage.events.some(
+        (event) =>
+          event.kind === "change" &&
+          event.id === oldProposalId &&
+          event.change.status === "superseded" &&
+          event.change.superseded_at === null,
+      ) &&
+      !undatedPage.events.some(
+        (event) =>
+          (event.kind === "revision-replacement" && event.id === revisionHistory[0].id) ||
+          (event.kind === "change-replacement" && event.id === oldProposalId),
+      ),
+    "old undated replacements must remain in details without fabricated events",
   );
   const foreignHistoryError = await expectError(
     contractorB.client.rpc("get_contractor_offer_history_page", {
