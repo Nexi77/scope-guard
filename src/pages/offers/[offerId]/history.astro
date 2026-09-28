@@ -3,34 +3,33 @@ import { AccountMenu } from "@/components/dashboard/AccountMenu";
 import ContractorNavigation from "@/components/dashboard/ContractorNavigation.astro";
 import OfferDetailNav from "@/components/offers/OfferDetailNav.astro";
 import Layout from "@/layouts/Layout.astro";
-import { loadContractorOfferView, type OfferChangeRecord, type OfferRevisionRecord } from "@/lib/contractor-offer-view";
+import { loadContractorOfferHistory, type OfferHistoryCursor } from "@/lib/offer-history";
 import { formatMinorAmount } from "@/lib/offer-items";
 
 const { user } = Astro.locals;
-const result = await loadContractorOfferView(Astro.request.headers, Astro.cookies, user, Astro.params.offerId ?? "", {
-  revisions: true,
-  changes: true,
-});
-const view = result.kind === "ok" ? result.view : null;
-if (!view) Astro.response.status = 404;
-const offer = view?.offer ?? null;
-type HistoryEvent =
-  | { kind: "revision"; at: string; id: string; revision: OfferRevisionRecord }
-  | { kind: "revision-decision"; at: string; id: string; revision: OfferRevisionRecord }
-  | { kind: "change"; at: string; id: string; change: OfferChangeRecord }
-  | { kind: "change-decision"; at: string; id: string; change: OfferChangeRecord };
-const events: HistoryEvent[] = [];
-for (const revision of view?.revisions ?? []) {
-  events.push({ kind: "revision", at: revision.created_at, id: revision.id, revision });
-  if (revision.decided_at)
-    events.push({ kind: "revision-decision", at: revision.decided_at, id: `${revision.id}:decision`, revision });
-}
-for (const change of view?.changes ?? []) {
-  events.push({ kind: "change", at: change.created_at, id: change.id, change });
-  if (change.decision)
-    events.push({ kind: "change-decision", at: change.decision.decided_at, id: `${change.id}:decision`, change });
-}
-events.sort((left, right) => Date.parse(left.at) - Date.parse(right.at) || left.id.localeCompare(right.id));
+Astro.response.headers.set("Cache-Control", "no-store");
+const targetId = Astro.url.searchParams.get("target");
+const targetKindValue = Astro.url.searchParams.get("target_kind");
+const targetKind = targetKindValue === "revision" || targetKindValue === "change" ? targetKindValue : null;
+const requestedPageSize = Number.parseInt(Astro.url.searchParams.get("page_size") ?? "25", 10);
+const pageSize = Number.isInteger(requestedPageSize) ? Math.min(Math.max(requestedPageSize, 2), 50) : 25;
+const result = await loadContractorOfferHistory(
+  Astro.request.headers,
+  Astro.cookies,
+  user,
+  Astro.params.offerId ?? "",
+  { cursor: Astro.url.searchParams.get("cursor"), targetId, targetKind, pageSize },
+);
+const page = result.kind === "ok" ? result.page : null;
+if (!page) Astro.response.status = 404;
+const offer = page?.offer ?? null;
+const events = page?.events ?? [];
+const targetHref = (kind: "revision" | "change", id: string, hash: string) =>
+  `/offers/${encodeURIComponent(offer?.id ?? "")}/history?target=${encodeURIComponent(id)}&target_kind=${kind}#${hash}`;
+const cursorHref = (cursor: OfferHistoryCursor) =>
+  `/offers/${encodeURIComponent(offer?.id ?? "")}/history?cursor=${encodeURIComponent(JSON.stringify(cursor))}&page_size=${pageSize}`;
+const eventPriority = (kind: string) => (kind.endsWith("replacement") ? 0 : kind.endsWith("decision") ? 2 : 1);
+const eventStableId = (kind: string, id: string) => `${kind}:${id}`;
 const formatDateTime = (value: string) =>
   new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(
     new Date(value),
@@ -90,7 +89,7 @@ const formatSnapshotMinor = (value: unknown) => {
       >
         ← Back to offers
       </a>
-      {!view || !offer ? (
+      {!page || !offer ? (
         <section class="bg-card mt-6 rounded-xl border p-6" aria-labelledby="offer-unavailable-title">
           <h1 id="offer-unavailable-title" class="text-xl font-semibold">
             Offer unavailable
@@ -111,8 +110,8 @@ const formatSnapshotMinor = (value: unknown) => {
           <OfferDetailNav
             offerId={offer.id}
             current="history"
-            canEdit={view.canEdit}
-            canProposeChange={view.canProposeChange}
+            canEdit={page.canEdit}
+            canProposeChange={page.canProposeChange}
           />
           {events.length === 0 ? (
             <section class="bg-card rounded-xl border p-6">
@@ -129,21 +128,31 @@ const formatSnapshotMinor = (value: unknown) => {
                   data-history-kind={event.kind}
                   data-history-at={event.at}
                   data-history-id={event.id}
+                  data-history-priority={eventPriority(event.kind)}
+                  data-history-stable-id={eventStableId(event.kind, event.id)}
                 >
                   <span class="bg-primary absolute -left-[31px] top-6 size-3 rounded-full" aria-hidden="true"></span>
                   {event.kind === "revision" ? (
                     <details
-                      class="bg-card rounded-xl border p-5"
+                      class:list={[
+                        "bg-card rounded-xl border p-5",
+                        targetId === event.revision.id ? "history-target border-primary ring-2 ring-primary/40" : "",
+                      ]}
                       id={`revision-${event.revision.id}`}
+                      open={targetId === event.revision.id}
                       data-offer-revision={event.revision.revision}
                       data-revision-status={event.revision.status}
                       data-revision-amount-minor={event.revision.base_amount_minor}
                     >
                       <summary class="cursor-pointer font-semibold focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
-                        Version {event.revision.revision} recorded · {formatDateTime(event.at)}
+                        Version {event.revision.revision} recorded · pending · {formatDateTime(event.at)}
                       </summary>
                       <div class="mt-4 space-y-4 border-t pt-4 text-sm">
-                        <p class="text-muted-foreground">Status: {event.revision.status}</p>
+                        <p>Status at creation: pending</p>
+                        <p class="text-muted-foreground">Current record status: {event.revision.status}</p>
+                        {event.revision.status === "superseded" && !event.revision.superseded_at ? (
+                          <p class="text-muted-foreground">Replaced; replacement date was not recorded.</p>
+                        ) : null}
                         <p class="whitespace-pre-wrap">{event.revision.base_scope}</p>
                         <dl class="grid gap-3 sm:grid-cols-2">
                           <div>
@@ -177,26 +186,78 @@ const formatSnapshotMinor = (value: unknown) => {
                   ) : event.kind === "revision-decision" ? (
                     <div class="bg-card rounded-xl border p-5" id={`revision-decision-${event.revision.id}`}>
                       <p class="font-semibold">
-                        Customer {event.revision.status} version {event.revision.revision}
+                        Customer {event.revision.decision_outcome} version {event.revision.revision}
                       </p>
                       <p class="text-muted-foreground mt-1 text-sm">{formatDateTime(event.at)}</p>
                       {event.revision.rejection_comment ? (
                         <p class="mt-3 whitespace-pre-wrap text-sm">Reason: {event.revision.rejection_comment}</p>
                       ) : null}
                       <a
-                        class="text-primary mt-3 inline-block text-sm underline underline-offset-4"
-                        href={`#revision-${event.revision.id}`}
+                        class="text-primary mt-3 inline-block text-sm underline underline-offset-4 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                        href={targetHref("revision", event.revision.id, `revision-${event.revision.id}`)}
                       >
                         View version details
                       </a>
                     </div>
+                  ) : event.kind === "revision-replacement" ? (
+                    <div class="bg-card rounded-xl border p-5">
+                      <p class="font-semibold">Version {event.revision.revision} replaced</p>
+                      <p class="text-muted-foreground mt-1 text-sm">{formatDateTime(event.at)}</p>
+                      <div class="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm">
+                        <a
+                          class="text-primary underline underline-offset-4 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                          href={targetHref("revision", event.revision.id, `revision-${event.revision.id}`)}
+                        >
+                          View replaced version
+                        </a>
+                        <a
+                          class="text-primary underline underline-offset-4 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                          href={targetHref("revision", event.successor.id, `revision-${event.successor.id}`)}
+                        >
+                          View successor version {event.successor.revision}
+                        </a>
+                      </div>
+                    </div>
+                  ) : event.kind === "change-replacement" ? (
+                    <div class="bg-card rounded-xl border p-5">
+                      <p class="font-semibold">Change proposal {event.change.proposal_revision} replaced</p>
+                      <p class="text-muted-foreground mt-1 text-sm">{formatDateTime(event.at)}</p>
+                      <div class="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm">
+                        <a
+                          class="text-primary underline underline-offset-4 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                          href={targetHref("change", event.change.id, `change-${event.change.id}`)}
+                        >
+                          View replaced proposal
+                        </a>
+                        <a
+                          class="text-primary underline underline-offset-4 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                          href={targetHref("change", event.successor.id, `change-${event.successor.id}`)}
+                        >
+                          View successor proposal {event.successor.proposal_revision}
+                        </a>
+                      </div>
+                    </div>
                   ) : event.kind === "change" ? (
-                    <details class="bg-card rounded-xl border p-5" id={`change-${event.change.id}`}>
+                    <details
+                      class:list={[
+                        "bg-card rounded-xl border p-5",
+                        targetId === event.change.id ? "history-target border-primary ring-2 ring-primary/40" : "",
+                      ]}
+                      id={`change-${event.change.id}`}
+                      open={targetId === event.change.id}
+                    >
                       <summary class="cursor-pointer font-semibold focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
-                        Change proposal {event.change.proposal_revision} · {event.change.status} ·{" "}
-                        {formatDateTime(event.at)}
+                        {event.state_at_creation === "agreed"
+                          ? `Correction ${event.change.proposal_revision} agreed at creation`
+                          : `Change proposal ${event.change.proposal_revision} proposed · pending`}{" "}
+                        · {formatDateTime(event.at)}
                       </summary>
                       <div class="mt-4 space-y-3 border-t pt-4 text-sm">
+                        <p>Status at creation: {event.state_at_creation === "agreed" ? "agreed" : "pending"}</p>
+                        <p class="text-muted-foreground">Current record status: {event.change.status}</p>
+                        {event.change.status === "superseded" && !event.change.superseded_at ? (
+                          <p class="text-muted-foreground">Replaced; replacement date was not recorded.</p>
+                        ) : null}
                         <p class="whitespace-pre-wrap">{event.change.description}</p>
                         <dl class="grid gap-3 sm:grid-cols-2">
                           <div>
@@ -315,17 +376,15 @@ const formatSnapshotMinor = (value: unknown) => {
                   ) : (
                     <div class="bg-card rounded-xl border p-5" id={`change-decision-${event.change.id}`}>
                       <p class="font-semibold">
-                        Customer {event.change.decision?.outcome} change proposal {event.change.proposal_revision}
+                        Customer {event.decision.outcome} change proposal {event.change.proposal_revision}
                       </p>
                       <p class="text-muted-foreground mt-1 text-sm">{formatDateTime(event.at)}</p>
-                      {event.change.decision?.rejection_comment ? (
-                        <p class="mt-3 whitespace-pre-wrap text-sm">
-                          Reason: {event.change.decision.rejection_comment}
-                        </p>
+                      {event.decision.rejection_comment ? (
+                        <p class="mt-3 whitespace-pre-wrap text-sm">Reason: {event.decision.rejection_comment}</p>
                       ) : null}
                       <a
-                        class="text-primary mt-3 inline-block text-sm underline underline-offset-4"
-                        href={`#change-${event.change.id}`}
+                        class="text-primary mt-3 inline-block text-sm underline underline-offset-4 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                        href={targetHref("change", event.change.id, `change-${event.change.id}`)}
                       >
                         View proposal details
                       </a>
@@ -335,8 +394,38 @@ const formatSnapshotMinor = (value: unknown) => {
               ))}
             </ol>
           )}
+          {page.hasPrevious || page.hasNext ? (
+            <nav aria-label="Offer history pages" class="mt-7 flex flex-wrap justify-between gap-3">
+              {page.hasPrevious && page.previousCursor ? (
+                <a
+                  class="border-input bg-background focus-visible:ring-ring inline-flex min-h-11 items-center rounded-md border px-4 text-sm font-medium focus-visible:ring-2 focus-visible:outline-none"
+                  href={cursorHref(page.previousCursor)}
+                >
+                  ← Earlier events
+                </a>
+              ) : (
+                <span />
+              )}
+              {page.hasNext && page.nextCursor ? (
+                <a
+                  class="border-input bg-background focus-visible:ring-ring inline-flex min-h-11 items-center rounded-md border px-4 text-sm font-medium focus-visible:ring-2 focus-visible:outline-none"
+                  href={cursorHref(page.nextCursor)}
+                >
+                  Later events →
+                </a>
+              ) : null}
+            </nav>
+          ) : null}
         </>
       )}
     </main>
   </div>
 </Layout>
+
+<script>
+  const target = document.querySelector<HTMLElement>(".history-target summary");
+  if (target) {
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({ block: "center" });
+  }
+</script>

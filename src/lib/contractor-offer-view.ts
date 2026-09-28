@@ -40,7 +40,10 @@ export interface OfferRevisionRecord {
   status: "pending" | "accepted" | "rejected" | "superseded";
   created_at: string;
   decided_at: string | null;
+  decision_outcome?: "accepted" | "rejected" | null;
   rejection_comment: string | null;
+  superseded_by?: string | null;
+  superseded_at?: string | null;
 }
 
 export interface CurrentOfferRecord {
@@ -73,6 +76,8 @@ export interface OfferChangeRecord {
   estimate_snapshot: Record<string, unknown>;
   item_effects: unknown[];
   decision: OfferChangeDecisionRecord | null;
+  superseded_by?: string | null;
+  superseded_at?: string | null;
 }
 
 export interface OfferChangeDecisionRecord {

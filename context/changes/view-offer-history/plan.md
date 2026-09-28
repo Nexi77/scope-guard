@@ -197,20 +197,20 @@ Apply the additive migration before deploying a history page that reads replacem
 
 #### Automated
 
-- [x] 1.1 Local migration applies and `npm run offer-contract` passes with dated future replacements and undated existing records.
-- [x] 1.2 `npm run lint` and `npm run build` pass after the schema and contract changes.
+- [x] 1.1 Local migration applies and `npm run offer-contract` passes with dated future replacements and undated existing records. — 3c9f198
+- [x] 1.2 `npm run lint` and `npm run build` pass after the schema and contract changes. — 3c9f198
 
 #### Manual
 
-- [ ] 1.3 Inspect a replaced revision and proposal in the local database: each new replacement has one successor and a timestamp, while earlier fixtures retain null replacement times.
+- [x] 1.3 Inspect a replaced revision and proposal in the local database: each new replacement has one successor and a timestamp, while earlier fixtures retain null replacement times. — 3c9f198
 
 ### Phase 2: Read and Present a Bounded Event Timeline
 
 #### Automated
 
-- [ ] 2.1 `npm run offer-contract` verifies owner isolation, stable tie ordering, cursor continuity without duplicates or missing events, and no dated event for old null timestamps.
-- [ ] 2.2 `npm run smoke` verifies contractor history access, chronological event labels, decision reasons, replacement links, pending anchors, and complete navigation across more than one page.
-- [ ] 2.3 `npm run lint` and `npm run build` pass.
+- [x] 2.1 `npm run offer-contract` verifies owner isolation, stable tie ordering, cursor continuity without duplicates or missing events, and no dated event for old null timestamps.
+- [x] 2.2 `npm run smoke` verifies contractor history access, chronological event labels, decision reasons, replacement links, pending anchors, and complete navigation across more than one page.
+- [x] 2.3 `npm run lint` and `npm run build` pass.
 
 #### Manual
 

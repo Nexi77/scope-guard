@@ -768,6 +768,94 @@ async function run() {
       Array.isArray(proposalRows[1].item_effects),
     "publishing a correction must retain and link the superseded proposal snapshot",
   );
+  const historyEvents = [];
+  let historyCursor = null;
+  for (let pageNumber = 0; pageNumber < 20; pageNumber += 1) {
+    const { data: page, error: pageError } = await contractorA.client.rpc("get_contractor_offer_history_page", {
+      p_offer_id: revisionOffer.id,
+      p_cursor: historyCursor,
+      p_page_size: 2,
+      p_target_record_id: null,
+      p_target_record_kind: null,
+    });
+    expectNoError(pageError, "read a contractor history page");
+    expect(Array.isArray(page.events) && page.events.length <= 2, "history read must enforce its requested page bound");
+    historyEvents.push(...page.events);
+    if (!page.has_next) {
+      expect(page.next_cursor === null, "final history page must not expose a later cursor");
+      break;
+    }
+    expect(page.next_cursor && page.events.length > 0, "a later history page must expose a cursor");
+    historyCursor = page.next_cursor;
+    expect(pageNumber < 19, "history cursors must finish within the bounded test loop");
+  }
+  const { data: historyRevisionRows, error: historyRevisionError } = await contractorA.client
+    .from("offer_revisions")
+    .select("id, decided_at, superseded_at")
+    .eq("offer_id", revisionOffer.id);
+  expectNoError(historyRevisionError, "count source revision history events");
+  const { data: historyChangeRows, error: historyChangeError } = await contractorA.client
+    .from("offer_changes")
+    .select("id, superseded_at")
+    .eq("offer_id", revisionOffer.id);
+  expectNoError(historyChangeError, "count source proposal history events");
+  const historyChangeIds = historyChangeRows.map((change) => change.id);
+  const { data: historyDecisionRows, error: historyDecisionError } = await contractorA.client
+    .from("change_decisions")
+    .select("offer_change_id")
+    .in("offer_change_id", historyChangeIds);
+  expectNoError(historyDecisionError, "count source proposal decisions");
+  const expectedHistoryEventCount =
+    historyRevisionRows.length +
+    historyRevisionRows.filter((revision) => revision.decided_at).length +
+    historyRevisionRows.filter((revision) => revision.superseded_at).length +
+    historyChangeRows.length +
+    historyDecisionRows.length +
+    historyChangeRows.filter((change) => change.superseded_at).length;
+  const eventIdentities = historyEvents.map((event) => `${event.kind}:${event.id}`);
+  expect(
+    historyEvents.length === expectedHistoryEventCount && new Set(eventIdentities).size === expectedHistoryEventCount,
+    "cursor pages must include every creation, decision, and dated replacement exactly once",
+  );
+  expect(
+    historyEvents.every((event, index) => {
+      if (index === 0) return true;
+      const previous = historyEvents[index - 1];
+      return (
+        Date.parse(previous.at) < Date.parse(event.at) ||
+        (Date.parse(previous.at) === Date.parse(event.at) &&
+          (previous.priority < event.priority ||
+            (previous.priority === event.priority && previous.stable_id.localeCompare(event.stable_id) < 0)))
+      );
+    }),
+    "cursor pages must retain strict timestamp, event-priority, and stable-ID ordering",
+  );
+  const { data: targetedHistoryPage, error: targetedHistoryError } = await contractorA.client.rpc(
+    "get_contractor_offer_history_page",
+    {
+      p_offer_id: revisionOffer.id,
+      p_cursor: null,
+      p_page_size: 2,
+      p_target_record_id: currentProposalId,
+      p_target_record_kind: "change",
+    },
+  );
+  expectNoError(targetedHistoryError, "open a proposal at its history event");
+  expect(
+    targetedHistoryPage.events[0]?.kind === "change" && targetedHistoryPage.events[0]?.id === currentProposalId,
+    "targeted history paging must begin at the exact proposal even when it is beyond the first page",
+  );
+  const foreignHistoryError = await expectError(
+    contractorB.client.rpc("get_contractor_offer_history_page", {
+      p_offer_id: revisionOffer.id,
+      p_cursor: null,
+      p_page_size: 2,
+      p_target_record_id: null,
+      p_target_record_kind: null,
+    }),
+    "read a foreign contractor history page",
+  );
+  expect(foreignHistoryError.code === "P0001", "foreign history reads must return the neutral unavailable error");
   const staleProposalDecision = await expectError(
     decisionRpc("change", {
       p_share_token: revisionOffer.share_token,
@@ -841,6 +929,21 @@ async function run() {
       agreedChange.deadline_delta_days === null &&
       agreedChange.activation_order !== null,
     "confirmed zero-impact corrections must be agreed and activated exactly once",
+  );
+  const { data: agreedHistoryPage, error: agreedHistoryError } = await contractorA.client.rpc(
+    "get_contractor_offer_history_page",
+    {
+      p_offer_id: revisionOffer.id,
+      p_cursor: null,
+      p_page_size: 2,
+      p_target_record_id: agreedChangeId,
+      p_target_record_kind: "change",
+    },
+  );
+  expectNoError(agreedHistoryError, "read a zero-impact correction history event");
+  expect(
+    agreedHistoryPage.events[0]?.state_at_creation === "agreed",
+    "zero-impact correction creation must be labeled agreed at creation",
   );
   const { data: activeItemsBeforeEffect, error: activeItemsBeforeEffectError } = await contractorA.client.rpc(
     "get_effective_offer_items",

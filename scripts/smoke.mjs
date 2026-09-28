@@ -1695,11 +1695,16 @@ const steps = [
     "pending proposal links to history without changing the active amount",
     async () => {
       const detail = await request(`/offers/${reusedOfferId}`);
-      const history = await request(`/offers/${reusedOfferId}/history`);
+      const history = await request(
+        `/offers/${reusedOfferId}/history?target=${publishedChangeId}&target_kind=change#change-${publishedChangeId}`,
+      );
+      const orderedHistory = await request(`/offers/${reusedOfferId}/history`);
       return {
         ...detail,
         body: `${detail.body} history-anchor:${history.body.includes(`id="change-${publishedChangeId}"`)}`,
         historyBody: history.body,
+        orderedHistoryBody: orderedHistory.body,
+        historyHeaders: history.headers,
       };
     },
     {
@@ -1707,18 +1712,32 @@ const steps = [
       body: ["waiting for customer approval", 'data-current-amount-minor="300"', "history-anchor:true"],
       check: (actual) => {
         const events = [
-          ...actual.historyBody.matchAll(
-            /data-history-kind="[^"]+" data-history-at="([^"]+)" data-history-id="([^"]+)"/g,
+          ...actual.orderedHistoryBody.matchAll(
+            /data-history-kind="([^"]+)" data-history-at="([^"]+)" data-history-id="([^"]+)" data-history-priority="(\d+)" data-history-stable-id="([^"]+)"/g,
           ),
-        ].map((match) => ({ at: Date.parse(match[1]), id: match[2] }));
+        ].map((match) => ({
+          kind: match[1],
+          at: Date.parse(match[2]),
+          id: match[3],
+          priority: Number(match[4]),
+          stableId: match[5],
+        }));
         return (
-          actual.body.includes(`/history#change-${publishedChangeId}`) &&
+          actual.body.includes(
+            `/history?target=${publishedChangeId}&amp;target_kind=change#change-${publishedChangeId}`,
+          ) &&
+          actual.historyHeaders.get("cache-control") === "no-store" &&
+          actual.historyBody.includes("history-target") &&
+          actual.historyBody.includes("Status at creation: pending") &&
           events.length >= 3 &&
           events.every(
             (event, index) =>
               index === 0 ||
               events[index - 1].at < event.at ||
-              (events[index - 1].at === event.at && events[index - 1].id.localeCompare(event.id) <= 0),
+              (events[index - 1].at === event.at &&
+                (events[index - 1].priority < event.priority ||
+                  (events[index - 1].priority === event.priority &&
+                    events[index - 1].stableId.localeCompare(event.stableId) < 0))),
           )
         );
       },
@@ -1891,6 +1910,40 @@ const steps = [
       status: 200,
       body: ['data-current-amount-minor="300"', "history-reason:true", "limited:429", "customer-result:true:true"],
       absentBody: ["waiting for customer approval"],
+    },
+  ],
+  [
+    "history cursor controls browse every event exactly once",
+    async () => {
+      const identities = [];
+      let pageCount = 0;
+      let current = await request(`/offers/${reusedOfferId}/history?page_size=2`);
+      while (pageCount < 20) {
+        if (current.status !== 200)
+          return { ...current, body: `History page failed: ${current.status} ${current.body}` };
+        pageCount += 1;
+        for (const [, kind, id] of current.body.matchAll(
+          /data-history-kind="([^"]+)" data-history-at="[^"]+" data-history-id="([^"]+)"/g,
+        ))
+          identities.push(`${kind}:${id}`);
+        const laterLink = current.body.match(/<a\b[^>]*href="([^"]+)"[^>]*>\s*Later events\s*→/);
+        if (!laterLink) break;
+        const targetUrl = new URL(laterLink[1].replaceAll("&amp;", "&"), BASE_URL);
+        current = await request(`${targetUrl.pathname}${targetUrl.search}`);
+      }
+      return {
+        status: 200,
+        body: `pages:${pageCount} events:${identities.length} unique:${new Set(identities).size}`,
+      };
+    },
+    {
+      status: 200,
+      check: (actual) => {
+        const values = Object.fromEntries(
+          [...actual.body.matchAll(/(pages|events|unique):(\d+)/g)].map((match) => [match[1], Number(match[2])]),
+        );
+        return values.pages >= 2 && values.events > 2 && values.events === values.unique;
+      },
     },
   ],
   [
