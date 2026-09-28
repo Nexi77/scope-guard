@@ -1249,24 +1249,9 @@ async function run() {
   expectNoError(rollbackCustomersError, "read customers after failed creation");
   expect(rollbackCustomers.length === 0, "failed creation must not leave a new customer behind");
 
-  const acceptedChange = await seedChange(
-    contractorA.id,
-    offerA.id,
-    "Accepted scope change",
-    1_500,
-  );
-  const protectedPendingChange = await seedChange(
-    contractorA.id,
-    revisionOffer.id,
-    "Protected pending change",
-    2_500,
-  );
-  const rejectedChange = await seedChange(
-    contractorB.id,
-    offerB.id,
-    "Rejected scope change",
-    2_000,
-  );
+  const acceptedChange = await seedChange(contractorA.id, offerA.id, "Accepted scope change", 1_500);
+  const protectedPendingChange = await seedChange(contractorA.id, revisionOffer.id, "Protected pending change", 2_500);
+  const rejectedChange = await seedChange(contractorB.id, offerB.id, "Rejected scope change", 2_000);
 
   for (const [client, offer, label] of [
     [contractorA.client, offerA, "accepted-change offer"],
@@ -1399,12 +1384,7 @@ async function run() {
   );
 
   async function verifyPinWithDecision(pin, context, shouldSucceed) {
-    const changeId = await seedChange(
-      contractorA.id,
-      pinOffer.id,
-      `${context} verification change`,
-      100,
-    );
+    const changeId = await seedChange(contractorA.id, pinOffer.id, `${context} verification change`, 100);
     const request = anonymous.rpc("decide_shared_offer_change", {
       p_share_token: pinOffer.share_token,
       p_pin: pin,

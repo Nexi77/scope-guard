@@ -131,7 +131,9 @@ export async function loadContractorOfferView(
         )
     : supabase
         .from("offers")
-        .select("id, base_scope, base_amount_minor, base_deadline, currency_code, status, items_revision, active_scope_revision, base_revision");
+        .select(
+          "id, base_scope, base_amount_minor, base_deadline, currency_code, status, items_revision, active_scope_revision, base_revision",
+        );
   const { data: offer, error: offerError } = await offerQuery
     .eq("id", offerId)
     .eq("contractor_id", user.id)
