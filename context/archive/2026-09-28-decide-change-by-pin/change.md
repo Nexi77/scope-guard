@@ -1,10 +1,10 @@
 ---
 change_id: decide-change-by-pin
 title: Decide change by pin
-status: impl_reviewed
+status: archived
 created: 2026-09-28
 updated: 2026-09-28
-archived_at: null
+archived_at: 2026-09-28T14:32:01Z
 ---
 
 ## Notes

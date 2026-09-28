@@ -231,9 +231,9 @@ Configure the server secret and Worker binding, deploy and verify the endpoint, 
 
 #### Automated
 
-- [x] 1.1 The migration applies locally and `npm run offer-contract` proves service-role-only decisions, stale protection, PIN validation, and idempotent base/change outcomes. — bf7056e
-- [x] 1.2 `npm run smoke` exercises the public decision endpoint's success, conflict, invalid-input, wrong-PIN, and rate-limit responses. — bf7056e
-- [x] 1.3 `npm run lint` and `npm run build` pass with the new route, server secret declaration, and Worker binding. — bf7056e
+- [x] 1.1 The migration applies locally and `npm run offer-contract` proves service-role-only decisions, stale protection, PIN validation, and idempotent base/change outcomes. — 6e9c304
+- [x] 1.2 `npm run smoke` exercises the public decision endpoint's success, conflict, invalid-input, wrong-PIN, and rate-limit responses. — 6e9c304
+- [x] 1.3 `npm run lint` and `npm run build` pass with the new route, server secret declaration, and Worker binding. — 6e9c304
 
 #### Manual
 
@@ -243,26 +243,26 @@ Configure the server secret and Worker binding, deploy and verify the endpoint, 
 
 #### Automated
 
-- [x] 2.1 `npm run offer-contract` passes for base/change decisions, stale conflicts, one-time activation, rejected history, and anonymous access isolation. — 310d2db
-- [x] 2.2 `npm run smoke` passes through the shared page and public endpoint for both initial-offer and change decisions, including refresh after stale state and the contractor-visible result. — 310d2db
-- [x] 2.3 `npm run lint` and `npm run build` pass after the shared UI and state check are added. — 310d2db
+- [x] 2.1 `npm run offer-contract` passes for base/change decisions, stale conflicts, one-time activation, rejected history, and anonymous access isolation. — 6e9c304
+- [x] 2.2 `npm run smoke` passes through the shared page and public endpoint for both initial-offer and change decisions, including refresh after stale state and the contractor-visible result. — 6e9c304
+- [x] 2.3 `npm run lint` and `npm run build` pass after the shared UI and state check are added. — 6e9c304
 
 #### Manual
 
 - [ ] 2.4 On phone and desktop, accept and reject from a shared link with the PIN; rejection requires a comment, the result is understandable without color, and keyboard and screen-reader focus reaches errors and the outcome. — Rechecked 2026-09-28 on desktop: accept/reject, required comment, keyboard order, error-summary focus, and recorded outcomes verified. Phone viewport and actual screen-reader announcement remain pending.
-- [x] 2.5 Leave an offer or change decision page open, alter the offer as contractor, and confirm the page warns and blocks submission until refresh; then review and decide the new state. — 310d2db
+- [x] 2.5 Leave an offer or change decision page open, alter the offer as contractor, and confirm the page warns and blocks submission until refresh; then review and decide the new state. — 6e9c304
 
 ### Phase 3: Create a New Offer from a Rejected Offer
 
 #### Automated
 
-- [x] 3.1 The rejected-offer action and authorized create page prefill only data belonging to the signed-in contractor. — 21657bd
-- [x] 3.2 Creating from a rejected offer produces an independent pending offer with a fresh share link and no PIN until the contractor sets a new one through the normal PIN flow; the original decision and history remain unchanged. — 21657bd
-- [x] 3.3 `npm run smoke` covers valid, malformed, unknown, pending, and foreign source IDs; invalid sources show the blank manual fallback without source prefill. `npm run offer-contract` runs if database-level behavior changes; `npm run lint` and `npm run build` pass. — 21657bd
+- [x] 3.1 The rejected-offer action and authorized create page prefill only data belonging to the signed-in contractor. — 6e9c304
+- [x] 3.2 Creating from a rejected offer produces an independent pending offer with a fresh share link and no PIN until the contractor sets a new one through the normal PIN flow; the original decision and history remain unchanged. — 6e9c304
+- [x] 3.3 `npm run smoke` covers valid, malformed, unknown, pending, and foreign source IDs; invalid sources show the blank manual fallback without source prefill. `npm run offer-contract` runs if database-level behavior changes; `npm run lint` and `npm run build` pass. — 6e9c304
 
 #### Manual
 
-- [x] 3.4 From a rejected offer, create a new draft, verify prefilled editable details, submit it, set a fresh PIN through the normal PIN flow, and confirm the new and original offers retain separate status, credentials, and history. — 21657bd
+- [x] 3.4 From a rejected offer, create a new draft, verify prefilled editable details, submit it, set a fresh PIN through the normal PIN flow, and confirm the new and original offers retain separate status, credentials, and history. — 6e9c304
 
 #### Manual Recheck Record — 2026-09-28
 

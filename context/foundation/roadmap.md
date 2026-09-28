@@ -50,7 +50,7 @@ ScopeGuard gathers agreements about changes raised during a renovation or instal
 | S-08 | prepare-structured-offer | prepare and review an itemized offer that provides a reliable baseline for change estimates | S-01 | FR-001, FR-002; MS-01 | done |
 | S-04 | record-offer-change | estimate a change against agreed work and confirm its explained price and deadline impact | S-01, S-08 | FR-003; Business Logic; MS-02 | done |
 | S-05 | view-shared-offer | use a permanent link to see only the assigned offer and its current status | S-01, S-04 | FR-005, FR-006 | done |
-| S-06 | decide-change-by-pin | use a permanent link and PIN to approve or reject a pending change | S-03, S-04, S-05 | US-01, FR-007 | in-progress |
+| S-06 | decide-change-by-pin | use a permanent link and PIN to approve or reject a pending change | S-03, S-04, S-05 | US-01, FR-007 | done |
 | S-07 | view-offer-history | see the current offer plus the history of changes and customer decisions | S-04, S-06 | FR-004, FR-005 | proposed |
 
 ## Streams
@@ -178,7 +178,7 @@ Update from the assisted-estimation research on `2026-09-23`: offer creation, br
 - **Blockers:** —
 - **Unknowns:** —
 - **Risk:** This capability proves the product's value; retrying the same decision must not alter history or create inconsistent status.
-- **Status:** in-progress
+- **Status:** done
 
 ### S-07: View the current offer and decision history
 
@@ -227,6 +227,8 @@ Slice boundary: S-08 delivers itemized offer preparation and review, including t
 ## Milestone History
 
 ## Done
+
+- **S-06: customer can use a permanent link and six-digit PIN to approve a pending change or reject it with a comment.** — Archived 2026-09-28 → `context/archive/2026-09-28-decide-change-by-pin/`. Lesson: —.
 
 - **F-01: (foundation) durable offer, change, and customer-decision records have the minimal ownership and access boundaries needed to safely execute the first flows.** — Archived 2026-09-22 → `context/archive/2026-09-21-minimal-offer-record-contract/`. Lesson: —.
 - **S-01: contractor can create a customer and an offer assigned to that customer with the original scope.** — Archived 2026-09-22 → `context/archive/2026-09-22-create-client-offer/`. Lesson: —.
