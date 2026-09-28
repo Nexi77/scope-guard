@@ -1,10 +1,10 @@
 ---
 change_id: view-shared-offer
 title: View shared offer
-status: impl_reviewed
+status: archived
 created: 2026-09-27
 updated: 2026-09-28
-archived_at: null
+archived_at: 2026-09-28T09:12:28Z
 ---
 
 ## Notes
