@@ -222,8 +222,8 @@ Apply the additive migration before deploying a history page that reads replacem
 
 #### Automated
 
-- [x] 3.1 `npm run offer-contract`, `npm run smoke`, `npm run lint`, and `npm run build` pass against a configured local Supabase environment.
-- [x] 3.2 Existing anonymous and foreign offer checks still return the established redirect or neutral unavailable response without exposing another contractor's history.
+- [x] 3.1 `npm run offer-contract`, `npm run smoke`, `npm run lint`, and `npm run build` pass against a configured local Supabase environment. — bce9078
+- [x] 3.2 Existing anonymous and foreign offer checks still return the established redirect or neutral unavailable response without exposing another contractor's history. — bce9078
 
 #### Manual
 
