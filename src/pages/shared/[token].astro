@@ -1,0 +1,218 @@
+---
+import Layout from "@/layouts/Layout.astro";
+import { formatMinorAmount } from "@/lib/offer-items";
+import { loadSharedOfferView, type SharedChangeStatus, type SharedOfferStatus } from "@/lib/shared-offer-view";
+
+Astro.response.headers.set("Cache-Control", "no-store");
+Astro.response.headers.set("Referrer-Policy", "no-referrer");
+const result = await loadSharedOfferView(Astro.params.token ?? "");
+if (result.kind === "unavailable") Astro.response.status = 404;
+const view = result.kind === "available" ? result.view : null;
+
+const offerStatusLabels: Record<SharedOfferStatus, string> = {
+  pending: "Awaiting customer decision",
+  accepted: "Accepted offer",
+  agreed: "Agreed offer",
+  rejected: "Offer rejected",
+};
+const changeStatusLabels: Record<SharedChangeStatus, string> = {
+  pending: "Awaiting customer decision",
+  accepted: "Accepted",
+  rejected: "Rejected",
+  agreed: "Agreed",
+  superseded: "Replaced by a newer proposal",
+};
+const formatAmount = (minor: string, currencyCode: string) =>
+  currencyCode === "PLN"
+    ? formatMinorAmount(BigInt(minor))
+    : new Intl.NumberFormat("en-GB", { style: "currency", currency: currencyCode }).format(Number(BigInt(minor)) / 100);
+const formatEffect = (minor: string, currencyCode: string) => {
+  const amount = BigInt(minor);
+  const prefix = amount < 0n ? "−" : amount > 0n ? "+" : "";
+  return `${prefix}${formatAmount(String(amount < 0n ? -amount : amount), currencyCode)}`;
+};
+const pendingChange = view?.changes.find((change) => change.status === "pending");
+const pastChanges = view?.changes.filter((change) => change.status !== "pending") ?? [];
+---
+
+<Layout title={view ? "Shared offer · ScopeGuard" : "Offer unavailable · ScopeGuard"} noIndex>
+  <main class="mx-auto min-h-full w-full max-w-4xl px-4 py-8 sm:px-6 sm:py-12">
+    <header class="mb-8 border-b border-slate-200 pb-5 dark:border-slate-700">
+      <a
+        class="text-sm font-semibold tracking-wide text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-4 dark:text-slate-200"
+        href="/"
+      >
+        ScopeGuard
+      </a>
+    </header>
+
+    {!view ? (
+      <section
+        aria-labelledby="unavailable-title"
+        class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:p-10"
+      >
+        <p class="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Shared offer</p>
+        <h1 id="unavailable-title" class="text-2xl font-bold text-slate-950 dark:text-white">
+          Offer unavailable
+        </h1>
+        <p class="mt-3 max-w-prose text-slate-600 dark:text-slate-300">
+          This offer link is unavailable. Ask the contractor to share a current link.
+        </p>
+      </section>
+    ) : (
+      <>
+        <section
+          aria-labelledby="offer-title"
+          class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:p-10"
+        >
+          <p class="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Shared offer</p>
+          <h1 id="offer-title" class="text-3xl font-bold tracking-tight text-slate-950 dark:text-white">
+            {view.status === "rejected" ? "Offer rejected" : "Offer details"}
+          </h1>
+          <p class="mt-3 inline-flex rounded-full border border-slate-400 px-3 py-1 text-sm font-semibold text-slate-800 dark:text-slate-100">
+            Status: {offerStatusLabels[view.status]}
+          </p>
+          {view.status === "pending" && (
+            <p class="mt-4 text-slate-700 dark:text-slate-200">
+              This is a proposal awaiting a customer decision. It has not been accepted.
+            </p>
+          )}
+          {view.status === "rejected" && (
+            <p class="mt-4 text-slate-700 dark:text-slate-200">
+              This offer was rejected and is not active agreed work.
+            </p>
+          )}
+
+          <div class="mt-8 grid gap-6 border-t border-slate-200 pt-6 dark:border-slate-700 sm:grid-cols-2">
+            <div>
+              <h2 class="text-lg font-semibold text-slate-950 dark:text-white">
+                {view.status === "pending" ? "Proposed scope" : "Current scope"}
+              </h2>
+              <p class="mt-2 whitespace-pre-wrap text-slate-700 dark:text-slate-200">{view.scope}</p>
+            </div>
+            <div class="space-y-4">
+              <div>
+                <h2 class="text-sm font-semibold text-slate-500">
+                  {view.status === "pending" ? "Proposed total" : "Current total"}
+                </h2>
+                <p class="mt-1 text-2xl font-bold tabular-nums text-slate-950 dark:text-white">
+                  {formatAmount(view.totalMinor, view.currencyCode)}
+                </p>
+              </div>
+              <div>
+                <h2 class="text-sm font-semibold text-slate-500">
+                  {view.status === "pending" ? "Proposed deadline" : "Current deadline"}
+                </h2>
+                <p class="mt-1 text-slate-900 dark:text-white">
+                  <time datetime={view.deadline}>{view.deadline}</time>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <section aria-labelledby="items-title" class="mt-8 border-t border-slate-200 pt-6 dark:border-slate-700">
+            <h2 id="items-title" class="text-lg font-semibold text-slate-950 dark:text-white">
+              Work items
+            </h2>
+            {view.items.length ? (
+              <ul class="mt-4 divide-y divide-slate-200 dark:divide-slate-700">
+                {view.items.map((item) => (
+                  <li class="grid gap-2 py-4 sm:grid-cols-[1fr_auto] sm:items-start">
+                    <div>
+                      <h3 class="font-semibold text-slate-900 dark:text-white">{item.name}</h3>
+                      {item.specification && (
+                        <p class="mt-1 whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">
+                          {item.specification}
+                        </p>
+                      )}
+                      <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                        {item.quantity} {item.unit} × {formatAmount(item.unitPriceMinor, view.currencyCode)} per{" "}
+                        {item.unit}
+                      </p>
+                    </div>
+                    <p class="font-semibold tabular-nums text-slate-950 dark:text-white">
+                      {formatAmount(item.lineAmountMinor, view.currencyCode)}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p class="mt-3 text-slate-600 dark:text-slate-300">No itemized work is listed.</p>
+            )}
+          </section>
+        </section>
+
+        {pendingChange && (
+          <section
+            aria-labelledby="pending-change-title"
+            class="mt-6 rounded-2xl border-2 border-slate-500 bg-slate-50 p-6 dark:border-slate-500 dark:bg-slate-900 sm:p-8"
+          >
+            <p class="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
+              Pending proposal
+            </p>
+            <h2 id="pending-change-title" class="mt-2 text-xl font-bold text-slate-950 dark:text-white">
+              {pendingChange.description}
+            </h2>
+            <p class="mt-2 font-semibold text-slate-800 dark:text-slate-100">Status: {changeStatusLabels.pending}</p>
+            <p class="mt-4 text-slate-700 dark:text-slate-200">
+              This proposal is not included in the current total or deadline above.
+            </p>
+            <dl class="mt-5 grid gap-4 sm:grid-cols-2">
+              <div>
+                <dt class="text-sm font-semibold text-slate-500">Proposed price impact</dt>
+                <dd class="mt-1 font-semibold tabular-nums text-slate-950 dark:text-white">
+                  {formatEffect(pendingChange.priceDeltaMinor, view.currencyCode)}
+                </dd>
+              </div>
+              <div>
+                <dt class="text-sm font-semibold text-slate-500">Proposed deadline change</dt>
+                <dd class="mt-1 font-semibold text-slate-950 dark:text-white">
+                  {pendingChange.deadlineDeltaDays === null
+                    ? "No change"
+                    : `${pendingChange.deadlineDeltaDays > 0 ? "+" : ""}${pendingChange.deadlineDeltaDays} days`}
+                </dd>
+              </div>
+            </dl>
+          </section>
+        )}
+
+        {pastChanges.length > 0 && (
+          <section
+            aria-labelledby="change-history-title"
+            class="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:p-8"
+          >
+            <h2 id="change-history-title" class="text-xl font-bold text-slate-950 dark:text-white">
+              Earlier changes
+            </h2>
+            <ol class="mt-4 divide-y divide-slate-200 dark:divide-slate-700">
+              {pastChanges.map((change) => (
+                <li class="py-4">
+                  <h3 class="font-semibold text-slate-900 dark:text-white">{change.description}</h3>
+                  <p class="mt-1 text-sm text-slate-700 dark:text-slate-200">
+                    Status: {changeStatusLabels[change.status]}
+                  </p>
+                  <dl class="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-sm">
+                    <div>
+                      <dt class="inline text-slate-500">Price effect: </dt>
+                      <dd class="inline font-medium text-slate-900 dark:text-white">
+                        {formatEffect(change.priceDeltaMinor, view.currencyCode)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt class="inline text-slate-500">Deadline effect: </dt>
+                      <dd class="inline font-medium text-slate-900 dark:text-white">
+                        {change.deadlineDeltaDays === null
+                          ? "No change"
+                          : `${change.deadlineDeltaDays > 0 ? "+" : ""}${change.deadlineDeltaDays} days`}
+                      </dd>
+                    </div>
+                  </dl>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
+      </>
+    )}
+  </main>
+</Layout>

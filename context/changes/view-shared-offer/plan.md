@@ -173,24 +173,24 @@ The new owner action works with existing `share_token` and `share_link_revoked_a
 
 #### Automated
 
-- [x] 1.1 Local migration and `npm run offer-contract` verify owner-only revoke/rotation, old-token invalidation, new-token access, foreign/anonymous denial, and unchanged PIN behavior.
-- [x] 1.2 `npm run smoke` covers authenticated share controls and API success/failure paths when local Supabase is configured.
-- [x] 1.3 `npm run lint` and `npm run build` pass.
+- [x] 1.1 Local migration and `npm run offer-contract` verify owner-only revoke/rotation, old-token invalidation, new-token access, foreign/anonymous denial, and unchanged PIN behavior. — 1434564
+- [x] 1.2 `npm run smoke` covers authenticated share controls and API success/failure paths when local Supabase is configured. — 1434564
+- [x] 1.3 `npm run lint` and `npm run build` pass. — 1434564
 
 #### Manual
 
-- [x] 1.4 On an owned offer, copy the URL, revoke it, and re-share; the visible URL changes and the old URL remains unusable.
-- [x] 1.5 A contractor cannot see or manage another contractor's offer link.
+- [x] 1.4 On an owned offer, copy the URL, revoke it, and re-share; the visible URL changes and the old URL remains unusable. — 1434564
+- [x] 1.5 A contractor cannot see or manage another contractor's offer link. — 1434564
 
 ### Phase 2: Public Read-Only Offer View
 
 #### Automated
 
-- [ ] 2.1 `npm run smoke` covers public-page success and failure states, token isolation, private-field absence, and agreed-versus-pending values with local Supabase.
-- [ ] 2.2 `npm run offer-contract` confirms the shared RPC still excludes private fields and revoked/rotated tokens cannot read an offer.
-- [ ] 2.3 `npm run lint` and `npm run build` pass.
+- [x] 2.1 `npm run smoke` covers public-page success and failure states, token isolation, private-field absence, and agreed-versus-pending values with local Supabase.
+- [x] 2.2 `npm run offer-contract` confirms the shared RPC still excludes private fields and revoked/rotated tokens cannot read an offer.
+- [x] 2.3 `npm run lint` and `npm run build` pass.
 
 #### Manual
 
-- [ ] 2.4 On mobile and desktop, the shared page clearly separates agreed terms, a pending proposal, and earlier change statuses; keyboard access and non-color status cues work.
-- [ ] 2.5 A customer can revisit an active link without a PIN, while unknown, revoked, and replaced links show the same unavailable state.
+- [x] 2.4 On mobile and desktop, the shared page clearly separates agreed terms, a pending proposal, and earlier change statuses; keyboard access and non-color status cues work.
+- [x] 2.5 A customer can revisit an active link without a PIN, while unknown, revoked, and replaced links show the same unavailable state.

@@ -216,6 +216,7 @@ let foreignOfferId = null;
 let firstGeneratedPin = null;
 let originalOwnerShareToken = null;
 let replacementOwnerShareToken = null;
+let foreignShareToken = null;
 
 const steps = [
   ["root redirects to dashboard", () => request("/"), { status: 302, location: "/dashboard" }],
@@ -741,6 +742,14 @@ const steps = [
         foreignJar,
       );
       foreignOfferId = offerIdFromLocation(creation.location);
+      if (foreignOfferId) {
+        const { data: foreignOffer } = await admin
+          .from("offers")
+          .select("share_token")
+          .eq("id", foreignOfferId)
+          .single();
+        foreignShareToken = foreignOffer?.share_token ?? null;
+      }
       const foreignForm = await request("/offers/new", {}, foreignJar);
       foreignCustomerId = customerIdFromPage(foreignForm.body, foreignCustomerName);
       return { ...creation, body: foreignCustomerId ? "foreign-customer-created" : creation.body };
@@ -749,6 +758,77 @@ const steps = [
       status: 302,
       locationPattern: /^\/offers\/[0-9a-f-]{36}$/i,
       body: "foreign-customer-created",
+    },
+  ],
+  [
+    "shared offer page is available anonymously and to a signed-in contractor without private data",
+    async () => {
+      if (!replacementOwnerShareToken) return { status: 0, body: "Missing active share token." };
+      const anonymous = await request(`/shared/${replacementOwnerShareToken}`, {}, new Map());
+      const signedIn = await request(`/shared/${replacementOwnerShareToken}`);
+      return {
+        ...anonymous,
+        signedIn,
+        privateFields: ["pin_hash", "labor_hours_per_unit", "price_breakdown", "owner_id", "share_token"].filter(
+          (field) => anonymous.body.toLowerCase().includes(field),
+        ),
+      };
+    },
+    {
+      status: 200,
+      body: ["Shared offer", "Proposed total", "Smoke-tested original scope", "Status: Awaiting customer decision"],
+      absentBody: [
+        "Revoke link",
+        "Accept offer",
+        "Reject offer",
+        "PIN",
+        "labor_hours_per_unit",
+        "price_breakdown",
+        "pin_hash",
+        "share_token",
+      ],
+      check: (actual) =>
+        actual.signedIn.status === 200 &&
+        actual.headers.get("cache-control") === "no-store" &&
+        actual.headers.get("referrer-policy") === "no-referrer" &&
+        actual.body.includes('name="robots" content="noindex, nofollow"') &&
+        actual.privateFields.length === 0,
+    },
+  ],
+  [
+    "shared offer unavailable tokens have identical public response and foreign offers stay isolated",
+    async () => {
+      const malformed = await request("/shared/not-a-token", {}, new Map());
+      const unknown = await request("/shared/00000000-0000-4000-8000-000000000000", {}, new Map());
+      const revoked = originalOwnerShareToken
+        ? await request(`/shared/${originalOwnerShareToken}`, {}, new Map())
+        : null;
+      const foreign = foreignShareToken ? await request(`/shared/${foreignShareToken}`, {}, new Map()) : null;
+      const current = replacementOwnerShareToken
+        ? await request(`/shared/${replacementOwnerShareToken}`, {}, new Map())
+        : null;
+      const unavailable = [malformed, unknown, revoked];
+      return {
+        ...unknown,
+        unavailable,
+        foreign,
+        current,
+        body: `${unknown.body} malformed:${malformed.status}:${malformed.body.includes("Offer unavailable")} revoked:${revoked?.status}:${revoked?.body.includes("Offer unavailable")} foreign:${foreign?.status}:${foreign?.body.includes(foreignScope)}:other:${foreign?.body.includes("Smoke-tested original scope")}`,
+      };
+    },
+    {
+      status: 404,
+      body: ["Offer unavailable", "malformed:404:true", "revoked:404:true", "foreign:200:true:other:false"],
+      absentBody: ["Smoke-tested original scope"],
+      check: (actual) =>
+        actual.unavailable.every(
+          (response) => response.status === 404 && response.body.includes("Offer unavailable"),
+        ) &&
+        new Set(actual.unavailable.map((response) => response.body)).size === 1 &&
+        actual.foreign?.status === 200 &&
+        actual.foreign.body.includes(foreignScope) &&
+        !actual.foreign.body.includes("Smoke-tested original scope") &&
+        actual.current?.status === 200,
     },
   ],
   [
@@ -1354,6 +1434,29 @@ const steps = [
           )
         );
       },
+    },
+  ],
+  [
+    "public shared view separates agreed amount from pending proposal impact",
+    async () => {
+      if (!reusedShareToken) return { status: 0, body: "Missing accepted offer share token." };
+      const anonymous = await request(`/shared/${reusedShareToken}`, {}, new Map());
+      const signedIn = await request(`/shared/${reusedShareToken}`);
+      return { ...anonymous, signedIn, body: `${anonymous.body} signed-in-status:${signedIn.status}` };
+    },
+    {
+      status: 200,
+      body: [
+        "Current total",
+        "Revised smoke-tested scope",
+        "Pending proposal",
+        "Add one smoke-tested work item unit",
+        "not included in the current total",
+        "Proposed price impact",
+      ],
+      absentBody: ["Accept offer", "Reject offer", "PIN", "price_breakdown", "labor_hours_per_unit"],
+      check: (actual) =>
+        actual.body.includes("signed-in-status:200") && (actual.body.match(/3,00 zł/g) ?? []).length >= 2,
     },
   ],
   [
