@@ -153,10 +153,10 @@ async function verifyCurrentReads(contractor, anonymous, offer, expectedItems, e
 }
 
 async function verifyOfferCommandLocks(offerIds, commands) {
-  // Keep the lock window below the local Supabase API request timeout while
-  // leaving enough time for every concurrent command to reach the database.
+  // Keep the lock window long enough for CI's concurrent PostgREST requests
+  // to reach PostgreSQL and become visible as blocked sessions.
   const lockMarker = 918273645;
-  const holdSeconds = 2;
+  const holdSeconds = 5;
   const createSql = `create or replace function public.test_hold_offer_locks(p_offer_ids uuid[], p_hold_seconds integer)
     returns void language plpgsql as $contract$
     begin
@@ -191,10 +191,30 @@ async function verifyOfferCommandLocks(offerIds, commands) {
       if (!lockAcquired) await pause(100);
     }
     expect(lockAcquired, `local transaction must hold the offer locks: ${holderError.trim()}`);
-    const startedAt = Date.now();
-    const results = await Promise.all(commands.map((command) => command()));
-    const waitedMs = Date.now() - startedAt;
-    expect(waitedMs >= 750, "offer commands must wait for the held transaction to release its locks");
+    const resultsPromise = Promise.all(commands.map((command) => command()));
+    let blockedCommands = 0;
+    for (let attempt = 0; attempt < 20 && blockedCommands < commands.length; attempt += 1) {
+      const blocked = spawnSync(
+        "supabase",
+        [
+          "db",
+          "query",
+          "--local",
+          "--output",
+          "json",
+          "select count(*)::int as blocked from pg_stat_activity where cardinality(pg_blocking_pids(pid)) > 0",
+        ],
+        { encoding: "utf8" },
+      );
+      expect(blocked.status === 0, `inspect blocked offer commands: ${blocked.stderr.trim()}`);
+      blockedCommands = Number(blocked.stdout.match(/"blocked"\s*:\s*(\d+)/i)?.[1] ?? 0);
+      if (blockedCommands < commands.length) await pause(100);
+    }
+    expect(
+      blockedCommands >= commands.length,
+      `all offer commands must be waiting on the held transaction (observed ${blockedCommands}/${commands.length})`,
+    );
+    const results = await resultsPromise;
     const exitCode = await holderClosed;
     expect(exitCode === 0, `local offer-lock transaction failed: ${holderError.trim()}`);
     return results;
