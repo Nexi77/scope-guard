@@ -165,10 +165,10 @@ async function verifyCurrentReads(contractor, anonymous, offer, expectedItems, e
   return { effectiveItems, shared };
 }
 
-async function verifyOfferCommandLocks(offerIds, commands) {
+async function verifyOfferCommandLocks(offerIds, commands, rpcNames) {
   // Keep the lock window long enough for CI's concurrent PostgREST requests
   // to reach PostgreSQL and become visible as blocked sessions.
-  const lockMarker = 918273645;
+  const lockMarker = 1_000_000_000 + (process.pid % 1_000_000_000);
   const holdSeconds = 5;
   const createSql = `create or replace function public.test_hold_offer_locks(p_offer_ids uuid[], p_hold_seconds integer)
     returns void language plpgsql as $contract$
@@ -178,8 +178,58 @@ async function verifyOfferCommandLocks(offerIds, commands) {
       perform pg_sleep(p_hold_seconds);
     end;
     $contract$`;
+  const waitCreateSql = `create or replace function public.test_wait_for_offer_commands(
+      p_rpc_names text[], p_lock_marker bigint, p_expected integer
+    ) returns integer language plpgsql as $contract$
+    declare
+      blocked_count integer := 0;
+    begin
+      for attempt in 1..40 loop
+        with recursive blockers(request_pid, blocking_pid) as (
+          select waiting.pid, blocked_by.pid
+            from pg_stat_activity as waiting
+            cross join lateral unnest(pg_blocking_pids(waiting.pid)) as blocked_by(pid)
+           where exists (
+             select 1 from unnest(p_rpc_names) as expected(rpc_name)
+              where waiting.query ilike '%' || expected.rpc_name || '%'
+           )
+          union
+          select blockers.request_pid, next_blocker.pid
+            from blockers
+            cross join lateral unnest(pg_blocking_pids(blockers.blocking_pid)) as next_blocker(pid)
+        )
+        select count(distinct blockers.request_pid)::int into blocked_count
+          from blockers
+         where blockers.blocking_pid in (
+           select pid
+             from pg_locks
+            where locktype = 'advisory'
+              and classid = 0::oid
+              and objid = p_lock_marker::oid
+              and objsubid = 1
+              and granted
+         );
+        if blocked_count >= p_expected then
+          return blocked_count;
+        end if;
+        perform pg_sleep(0.1);
+      end loop;
+      return blocked_count;
+    end;
+    $contract$`;
   const createResult = spawnSync("supabase", ["db", "query", "--local", createSql], { encoding: "utf8" });
   expect(createResult.status === 0, `create local lock harness: ${createResult.stderr.trim()}`);
+  const dropWaitResult = spawnSync(
+    "supabase",
+    ["db", "query", "--local", "drop function if exists public.test_wait_for_offer_commands(text[], bigint, integer)"],
+    { encoding: "utf8" },
+  );
+  expect(dropWaitResult.status === 0, `reset local lock wait helper: ${dropWaitResult.stderr.trim()}`);
+  const waitCreateResult = spawnSync("supabase", ["db", "query", "--local", waitCreateSql], { encoding: "utf8" });
+  expect(
+    waitCreateResult.status === 0,
+    `create local lock wait helper: ${waitCreateResult.stderr.trim()} ${waitCreateResult.stdout.trim()}`,
+  );
   const ids = offerIds.map((id) => `'${id}'::uuid`).join(",");
   const sql = `select public.test_hold_offer_locks(array[${ids}], ${holdSeconds})`;
   const holder = spawn("supabase", ["db", "query", "--local", sql], {
@@ -205,24 +255,25 @@ async function verifyOfferCommandLocks(offerIds, commands) {
     }
     expect(lockAcquired, `local transaction must hold the offer locks: ${holderError.trim()}`);
     const resultsPromise = Promise.all(commands.map((command) => command()));
-    let blockedCommands = 0;
-    for (let attempt = 0; attempt < 20 && blockedCommands < commands.length; attempt += 1) {
-      const blocked = spawnSync(
-        "supabase",
-        [
-          "db",
-          "query",
-          "--local",
-          "--output",
-          "json",
-          "select count(*)::int as blocked from pg_stat_activity where cardinality(pg_blocking_pids(pid)) > 0",
-        ],
-        { encoding: "utf8" },
-      );
-      expect(blocked.status === 0, `inspect blocked offer commands: ${blocked.stderr.trim()}`);
-      blockedCommands = Number(blocked.stdout.match(/"blocked"\s*:\s*(\d+)/i)?.[1] ?? 0);
-      if (blockedCommands < commands.length) await pause(100);
-    }
+    const waitSql = `select public.test_wait_for_offer_commands(array[${rpcNames
+      .map((name) => `'${name}'`)
+      .join(",")}], ${lockMarker}, ${commands.length}) as blocked`;
+    const waitForCommands = spawn("supabase", ["db", "query", "--local", "--output", "json", waitSql], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let waitOutput = "";
+    let waitError = "";
+    waitForCommands.stdout.setEncoding("utf8");
+    waitForCommands.stderr.setEncoding("utf8");
+    waitForCommands.stdout.on("data", (chunk) => {
+      waitOutput += chunk;
+    });
+    waitForCommands.stderr.on("data", (chunk) => {
+      waitError += chunk;
+    });
+    const waitExitCode = await new Promise((resolve) => waitForCommands.once("close", resolve));
+    expect(waitExitCode === 0, `inspect blocked offer commands: ${waitError.trim()}`);
+    const blockedCommands = Number(waitOutput.match(/"blocked"\s*:\s*(\d+)/i)?.[1] ?? 0);
     expect(
       blockedCommands >= commands.length,
       `all offer commands must be waiting on the held transaction (observed ${blockedCommands}/${commands.length})`,
@@ -234,8 +285,21 @@ async function verifyOfferCommandLocks(offerIds, commands) {
   } finally {
     if (holder.exitCode === null) holder.kill();
     await holderClosed;
-    const dropSql = "drop function if exists public.test_hold_offer_locks(uuid[], integer)";
-    spawnSync("supabase", ["db", "query", "--local", dropSql], { encoding: "utf8" });
+    spawnSync(
+      "supabase",
+      [
+        "db",
+        "query",
+        "--local",
+        "drop function if exists public.test_wait_for_offer_commands(text[], bigint, integer)",
+      ],
+      { encoding: "utf8" },
+    );
+    spawnSync(
+      "supabase",
+      ["db", "query", "--local", "drop function if exists public.test_hold_offer_locks(uuid[], integer)"],
+      { encoding: "utf8" },
+    );
   }
 }
 
@@ -751,6 +815,7 @@ async function run() {
           p_rejection_comment: "Concurrent opposing decision",
         }),
     ],
+    ["decide_customer_offer_change", "decide_customer_offer_change"],
   );
   for (const [index, result] of raceResults.entries()) {
     expectNoError(result.error, `opposing decision race request ${index + 1}`);
@@ -2427,6 +2492,7 @@ async function run() {
         return "decision";
       },
     ],
+    ["edit_offer_items", "publish_offer_change_checked", "decide_customer_offer_change"],
   );
   expect(
     lockedCommands.join(",") === "edit,publication,decision",
