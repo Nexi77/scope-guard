@@ -1,7 +1,7 @@
 ---
 change_id: testing-decision-abuse-and-state-safety
 title: Decision abuse and state safety tests
-status: implementing
+status: implemented
 created: 2026-09-29
 updated: 2026-09-29
 archived_at: null

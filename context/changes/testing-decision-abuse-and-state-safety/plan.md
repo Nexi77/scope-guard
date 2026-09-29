@@ -196,6 +196,6 @@ No schema migration or production deployment change is planned. Run Supabase CLI
 
 #### Automated
 
-- [x] 3.1 `npm run offer-contract` and `SMOKE_TRANSPORT=harness npm run smoke` pass with local Supabase credentials and the Worker harness.
-- [x] 3.2 `npm run lint`, `npx astro check`, and `npm run build` pass after the test changes.
-- [x] 3.3 `context/foundation/test-plan.md` §6.1 names the shipped reference checks, test locations, fixture pattern, and run commands without claiming a distributed limit.
+- [x] 3.1 `npm run offer-contract` and `SMOKE_TRANSPORT=harness npm run smoke` pass with local Supabase credentials and the Worker harness. — 7f860dd
+- [x] 3.2 `npm run lint`, `npx astro check`, and `npm run build` pass after the test changes. — 7f860dd
+- [x] 3.3 `context/foundation/test-plan.md` §6.1 names the shipped reference checks, test locations, fixture pattern, and run commands without claiming a distributed limit. — 7f860dd
