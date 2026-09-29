@@ -234,6 +234,7 @@ const customerName = `Smoke customer ${Date.now()}`;
 const malformedCustomerName = `Malformed items customer ${Date.now()}`;
 const oversizedCustomerName = `Oversized items customer ${Date.now()}`;
 const foreignCustomerName = `Foreign smoke customer ${Date.now()}`;
+const abuseCustomerName = `Decision abuse smoke customer ${Date.now()}`;
 const foreignScope = "Foreign contractor private scope";
 let createdCustomerId = null;
 let reusedCustomerId = null;
@@ -255,9 +256,15 @@ let foreignCustomerId = null;
 let offerId = null;
 let foreignOfferId = null;
 let firstGeneratedPin = null;
+let replacementOwnerPin = null;
 let originalOwnerShareToken = null;
 let replacementOwnerShareToken = null;
 let foreignShareToken = null;
+let foreignOfferPin = null;
+let abuseOfferId = null;
+let abuseShareToken = null;
+let abuseOfferPin = null;
+let abuseBaseRevisionId = null;
 
 const steps = [
   ["root redirects to dashboard", () => request("/"), { status: 302, location: "/dashboard" }],
@@ -699,6 +706,7 @@ const steps = [
       } catch {
         /* checked below */
       }
+      replacementOwnerPin = replacement;
       return {
         ...result,
         body:
@@ -784,6 +792,12 @@ const steps = [
       );
       foreignOfferId = offerIdFromLocation(creation.location);
       if (foreignOfferId) {
+        const pinResponse = await request(`/api/offers/${foreignOfferId}/pin`, { method: "POST" }, foreignJar);
+        try {
+          foreignOfferPin = JSON.parse(pinResponse.body).pin;
+        } catch {
+          foreignOfferPin = null;
+        }
         const { data: foreignOffer } = await admin
           .from("offers")
           .select("share_token")
@@ -1445,6 +1459,202 @@ const steps = [
     { status: 404, body: "Offer is unavailable" },
   ],
   [
+    "distinct wrong PIN attempts exhaust only a fresh token budget without deciding its offer",
+    async () => {
+      const abuseContractor = createClient(supabaseUrl, supabaseAnonKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      const { error: signInError } = await abuseContractor.auth.signInWithPassword({ email, password });
+      if (signInError) return { status: 0, body: "Could not authenticate the isolated offer fixture." };
+      const { data: created, error: creationError } = await abuseContractor.rpc("create_offer_with_customer", {
+        p_customer_id: null,
+        p_customer_name: abuseCustomerName,
+        p_confirm_duplicate: false,
+        p_base_scope: "Pending decision abuse fixture",
+        p_currency_code: "PLN",
+        p_base_deadline: today(),
+        p_items: standardItems().slice(0, 1),
+      });
+      abuseOfferId = Array.isArray(created) ? created[0]?.offer_id : null;
+      if (creationError || !abuseOfferId)
+        return { status: 0, body: "Could not create the isolated decision abuse offer." };
+      const pinResponse = await requestWithTransientProxyRetry(`/api/offers/${abuseOfferId}/pin`, { method: "POST" });
+      try {
+        abuseOfferPin = JSON.parse(pinResponse.body).pin;
+      } catch {
+        return { status: 0, body: "Could not read the isolated offer PIN." };
+      }
+      const { data: offer, error: offerError } = await admin
+        .from("offers")
+        .select("share_token")
+        .eq("id", abuseOfferId)
+        .single();
+      if (pinResponse.status !== 200 || !/^\d{6}$/.test(abuseOfferPin ?? "") || offerError || !offer?.share_token)
+        return { status: 0, body: "Could not initialize the isolated offer token and PIN." };
+      abuseShareToken = offer.share_token;
+      const { data: shared, error: sharedError } = await sharedClient.rpc("get_shared_offer", {
+        p_share_token: abuseShareToken,
+      });
+      if (sharedError || !shared?.base_revision?.id || shared.base_revision.status !== "pending")
+        return { status: 0, body: "Could not read the isolated pending base revision." };
+      abuseBaseRevisionId = shared.base_revision.id;
+      const decision = {
+        target_kind: "base",
+        target_id: abuseBaseRevisionId,
+        expected_base_revision: shared.base_revision.revision,
+        expected_active_scope_revision: shared.active_scope_revision,
+        outcome: "accepted",
+      };
+      const failures = [];
+      const wrongPins = [];
+      for (let candidate = 0; wrongPins.length < 6; candidate += 1) {
+        const pinGuess = String(candidate).padStart(6, "0");
+        if (pinGuess !== abuseOfferPin) wrongPins.push(pinGuess);
+      }
+      for (const wrongPin of wrongPins) {
+        const response = await request(
+          `/api/shared/${abuseShareToken}/decision`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...decision, pin: wrongPin }),
+          },
+          new Map(),
+        );
+        if (response.status !== 400 || !response.body.includes("Decision could not be completed"))
+          failures.push(response.status);
+      }
+      const before = await admin
+        .from("offer_revisions")
+        .select("status, decision_outcome, decided_at")
+        .eq("id", abuseBaseRevisionId)
+        .single();
+      const offerBefore = await admin.from("offers").select("status").eq("id", abuseOfferId).single();
+      const validAfterLimit = await request(
+        `/api/shared/${abuseShareToken}/decision`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...decision, pin: abuseOfferPin }),
+        },
+        new Map(),
+      );
+      const after = await admin
+        .from("offer_revisions")
+        .select("status, decision_outcome, decided_at")
+        .eq("id", abuseBaseRevisionId)
+        .single();
+      const offerAfter = await admin.from("offers").select("status").eq("id", abuseOfferId).single();
+      const untouched = (result) =>
+        !result.error &&
+        result.data?.status === "pending" &&
+        result.data?.decision_outcome === null &&
+        result.data?.decided_at === null;
+      const noDecisionBefore = untouched(before) && !offerBefore.error && offerBefore.data?.status === "pending";
+      const noDecisionAfter = untouched(after) && !offerAfter.error && offerAfter.data?.status === "pending";
+      return {
+        status: 200,
+        body: `wrong-pin-count:${6 - failures.length} limiter:${validAfterLimit.status} pending-before:${noDecisionBefore} pending-after:${noDecisionAfter}`,
+      };
+    },
+    {
+      status: 200,
+      body: ["wrong-pin-count:6", "limiter:429", "pending-before:true", "pending-after:true"],
+    },
+  ],
+  [
+    "revoked and cross-offer decision links stay generic and leave both offers pending",
+    async () => {
+      if (
+        !abuseShareToken ||
+        !abuseBaseRevisionId ||
+        !abuseOfferPin ||
+        !foreignShareToken ||
+        !foreignOfferId ||
+        !replacementOwnerPin ||
+        !foreignOfferPin
+      )
+        return { status: 0, body: "Missing isolated or foreign decision fixture." };
+      const { data: ownerState, error: ownerError } = await sharedClient.rpc("get_shared_offer", {
+        p_share_token: replacementOwnerShareToken,
+      });
+      const { data: foreignState, error: foreignError } = await sharedClient.rpc("get_shared_offer", {
+        p_share_token: foreignShareToken,
+      });
+      if (ownerError || foreignError || !ownerState?.base_revision?.id || !foreignState?.base_revision?.id)
+        return { status: 0, body: "Could not read pending decision isolation targets." };
+      const attempt = async (token, targetId, pin, expectedBase, expectedScope) =>
+        request(
+          `/api/shared/${token}/decision`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              target_kind: "base",
+              target_id: targetId,
+              expected_base_revision: expectedBase,
+              expected_active_scope_revision: expectedScope,
+              pin,
+              outcome: "accepted",
+            }),
+          },
+          new Map(),
+        );
+      const revoked = await attempt(
+        originalOwnerShareToken,
+        ownerState.base_revision.id,
+        firstGeneratedPin,
+        ownerState.base_revision.revision,
+        ownerState.active_scope_revision,
+      );
+      const crossOfferTarget = await attempt(
+        replacementOwnerShareToken,
+        foreignState.base_revision.id,
+        replacementOwnerPin,
+        ownerState.base_revision.revision,
+        ownerState.active_scope_revision,
+      );
+      const foreignLink = await attempt(
+        foreignShareToken,
+        ownerState.base_revision.id,
+        foreignOfferPin,
+        ownerState.base_revision.revision,
+        ownerState.active_scope_revision,
+      );
+      const pendingTarget = async (id) =>
+        admin.from("offer_revisions").select("status, decision_outcome, decided_at").eq("id", id).single();
+      const [ownerTarget, foreignTarget, ownerOffer, foreignOffer] = await Promise.all([
+        pendingTarget(ownerState.base_revision.id),
+        pendingTarget(foreignState.base_revision.id),
+        admin.from("offers").select("status").eq("id", offerId).single(),
+        admin.from("offers").select("status").eq("id", foreignOfferId).single(),
+      ]);
+      const pending = (result) =>
+        !result.error &&
+        result.data?.status === "pending" &&
+        result.data?.decision_outcome === null &&
+        result.data?.decided_at === null;
+      const unchanged =
+        pending(ownerTarget) &&
+        pending(foreignTarget) &&
+        !ownerOffer.error &&
+        ownerOffer.data?.status === "pending" &&
+        !foreignOffer.error &&
+        foreignOffer.data?.status === "pending";
+      const generic = [revoked, crossOfferTarget, foreignLink].every(
+        (response) =>
+          response.status === 400 &&
+          response.body.includes("Decision could not be completed") &&
+          !response.body.includes(foreignOfferId),
+      );
+      return {
+        status: 200,
+        body: `generic:${generic} pending:${unchanged} revoked:${revoked.status} cross-target:${crossOfferTarget.status} foreign-link:${foreignLink.status}`,
+      };
+    },
+    { status: 200, body: ["generic:true", "pending:true", "revoked:400", "cross-target:400", "foreign-link:400"] },
+  ],
+  [
     "customer accepts the current base revision with the offer PIN",
     async () => {
       const contractor = createClient(supabaseUrl, supabaseAnonKey, {
@@ -1487,7 +1697,7 @@ const steps = [
         },
         new Map(),
       );
-      const oversized = await request(
+      const oversized = await requestWithTransientProxyRetry(
         `/api/shared/${offer.share_token}/decision`,
         {
           method: "POST",
@@ -1543,7 +1753,7 @@ const steps = [
           body: `Decision endpoint status checks failed: origin=${wrongOrigin.status}, size=${oversized.status}, JSON=${invalidJson.status}, PIN=${wrongPin.status}, stale=${staleView.status}.`,
         };
       }
-      const decisionResponse = await request(
+      const decisionResponse = await requestWithTransientProxyRetry(
         `/api/shared/${offer.share_token}/decision`,
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(baseDecision) },
         new Map(),

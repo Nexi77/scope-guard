@@ -180,17 +180,17 @@ No schema migration or production deployment change is planned. Run Supabase CLI
 
 #### Automated
 
-- [x] 1.1 `npm run offer-contract` proves valid-PIN opposite-outcome retries for base and change return the original persisted outcome and timestamp without a second decision effect.
-- [x] 1.2 `npm run offer-contract` proves a stale request for a still-pending target fails with `PT409` and leaves that target undecided.
-- [x] 1.3 `npm run offer-contract` proves two overlapping opposite decisions on one pending change yield one stored outcome/time and its matching single active-scope effect.
+- [x] 1.1 `npm run offer-contract` proves valid-PIN opposite-outcome retries for base and change return the original persisted outcome and timestamp without a second decision effect. — 4ca1069
+- [x] 1.2 `npm run offer-contract` proves a stale request for a still-pending target fails with `PT409` and leaves that target undecided. — 4ca1069
+- [x] 1.3 `npm run offer-contract` proves two overlapping opposite decisions on one pending change yield one stored outcome/time and its matching single active-scope effect. — 4ca1069
 
 ### Phase 2: Public PIN and link abuse checks
 
 #### Automated
 
-- [ ] 2.1 `SMOKE_TRANSPORT=harness npm run smoke` proves distinct wrong six-digit PIN attempts are denied and a further valid request receives local 429 without creating a decision.
-- [ ] 2.2 `SMOKE_TRANSPORT=harness npm run smoke` proves revoked/foreign token and cross-offer target attempts do not disclose the other offer or create a decision.
-- [ ] 2.3 `SMOKE_TRANSPORT=harness npm run smoke` preserves the existing successful decision, stale 409, and same-outcome retry checks.
+- [x] 2.1 `SMOKE_TRANSPORT=harness npm run smoke` proves distinct wrong six-digit PIN attempts are denied and a further valid request receives local 429 without creating a decision.
+- [x] 2.2 `SMOKE_TRANSPORT=harness npm run smoke` proves revoked/foreign token and cross-offer target attempts do not disclose the other offer or create a decision.
+- [x] 2.3 `SMOKE_TRANSPORT=harness npm run smoke` preserves the existing successful decision, stale 409, and same-outcome retry checks.
 
 ### Phase 3: Cookbook and full verification
 
