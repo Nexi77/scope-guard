@@ -94,7 +94,11 @@ These become concrete locations, naming rules, reference tests, and run commands
 
 ### 6.1 PIN and decision contract
 
-TBD — see §3 Phase 1 for wrong-PIN, foreign-link, race, stale-decision, and retry patterns.
+Reference checks live in `scripts/offer-contract.mjs` and `scripts/smoke.mjs`. The database contract covers service-only decision access and revoked links; a stale still-pending target remains undecided; an opposing accept/reject race records one winner and applies its scope effect once; and opposite-outcome retries of accepted base and change decisions return the original result without repeating effects. These checks are grouped around the `stale pending decision`, `opposing decision race`, `opposite base retry`, and `opposite change retry` fixtures. The Worker smoke checks exercise six distinct wrong PINs on a fresh offer token, verify the offer remains pending and the next valid attempt is throttled, then check generic failures for revoked links and cross-offer targets across two contractors.
+
+For abuse coverage, create a per-run isolated offer and share token, generate its PIN through the contractor PIN route, and read the pending target and revisions through the shared-offer read. Keep foreign-link cases on a separately authenticated contractor's offer with its own PIN. Wrong-PIN guesses must be distinct six-digit values and exclude the actual PIN; do not spend attempts on a token used by later happy-path checks. The smoke fixture seeds its isolated offer through the authenticated `create_offer_with_customer` RPC and then uses the HTTP route for PIN generation and decision requests.
+
+Run `npm run offer-contract` and `SMOKE_TRANSPORT=harness npm run smoke` with local Supabase credentials. The public decision route uses the Cloudflare `DECISION_LIMITER` binding keyed by share token; the smoke assertion demonstrates the configured local Worker behavior for that fixture. Treat it as a per-binding, per-token throttle check, not proof of a globally coordinated or distributed rate limit.
 
 ### 6.2 Active offer and pricing rules
 

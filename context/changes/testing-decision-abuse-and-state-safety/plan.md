@@ -188,14 +188,14 @@ No schema migration or production deployment change is planned. Run Supabase CLI
 
 #### Automated
 
-- [x] 2.1 `SMOKE_TRANSPORT=harness npm run smoke` proves distinct wrong six-digit PIN attempts are denied and a further valid request receives local 429 without creating a decision.
-- [x] 2.2 `SMOKE_TRANSPORT=harness npm run smoke` proves revoked/foreign token and cross-offer target attempts do not disclose the other offer or create a decision.
-- [x] 2.3 `SMOKE_TRANSPORT=harness npm run smoke` preserves the existing successful decision, stale 409, and same-outcome retry checks.
+- [x] 2.1 `SMOKE_TRANSPORT=harness npm run smoke` proves distinct wrong six-digit PIN attempts are denied and a further valid request receives local 429 without creating a decision. — 64494a5
+- [x] 2.2 `SMOKE_TRANSPORT=harness npm run smoke` proves revoked/foreign token and cross-offer target attempts do not disclose the other offer or create a decision. — 64494a5
+- [x] 2.3 `SMOKE_TRANSPORT=harness npm run smoke` preserves the existing successful decision, stale 409, and same-outcome retry checks. — 64494a5
 
 ### Phase 3: Cookbook and full verification
 
 #### Automated
 
-- [ ] 3.1 `npm run offer-contract` and `SMOKE_TRANSPORT=harness npm run smoke` pass with local Supabase credentials and the Worker harness.
-- [ ] 3.2 `npm run lint`, `npx astro check`, and `npm run build` pass after the test changes.
-- [ ] 3.3 `context/foundation/test-plan.md` §6.1 names the shipped reference checks, test locations, fixture pattern, and run commands without claiming a distributed limit.
+- [x] 3.1 `npm run offer-contract` and `SMOKE_TRANSPORT=harness npm run smoke` pass with local Supabase credentials and the Worker harness.
+- [x] 3.2 `npm run lint`, `npx astro check`, and `npm run build` pass after the test changes.
+- [x] 3.3 `context/foundation/test-plan.md` §6.1 names the shipped reference checks, test locations, fixture pattern, and run commands without claiming a distributed limit.
