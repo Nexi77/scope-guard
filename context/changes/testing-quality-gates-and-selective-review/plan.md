@@ -165,10 +165,10 @@ No product-data/schema migration. CI user/configuration is disposable; local ver
 
 #### Automated
 
-- [x] 2.1 Four safe review screenshots and review.md identify the two routes, two viewports, scenario/theme/build, concrete observations and keyboard/error checks.
-- [x] 2.2 Synthetic review fixtures are removed with asserted zero residue in the six domain tables.
-- [x] 2.3 Cookbook 6.5 names verified CI commands, HTTP/transaction examples, review scope and privacy rules; rollout status becomes complete after user review.
+- [x] 2.1 Four safe review screenshots and review.md identify the two routes, two viewports, scenario/theme/build, concrete observations and keyboard/error checks. — 46f1dd9
+- [x] 2.2 Synthetic review fixtures are removed with asserted zero residue in the six domain tables. — 46f1dd9
+- [x] 2.3 Cookbook 6.5 names verified CI commands, HTTP/transaction examples, review scope and privacy rules; rollout status becomes complete after user review. — 46f1dd9
 
 #### Manual
 
-- [x] 2.4 User reviews the curated customer and contractor screenshots and confirms the documented clarity assessment or records required follow-up findings.
+- [x] 2.4 User reviews the curated customer and contractor screenshots and confirms the documented clarity assessment or records required follow-up findings. — 46f1dd9
