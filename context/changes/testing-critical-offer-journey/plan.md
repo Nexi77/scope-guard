@@ -158,9 +158,9 @@ No schema or production-data migration. Local journey fixtures must be removed e
 
 #### Automated
 
-- [x] 2.1 Rejected-copy spec passes independently: `npm run e2e -- tests/e2e/rejected-copy-journey.spec.ts`.
-- [x] 2.2 A deliberate copy-prefill or independence regression fails the business assertion; production is restored and the spec passes again.
-- [x] 2.3 Token-scoped cleanup verifies zero residue for original and copy after green and deliberate-red runs.
-- [x] 2.4 Complete browser suite passes: `npm run e2e`.
-- [x] 2.5 Static/build checks pass: `npm run lint`, `npm run astro -- check`, and `npm run build`.
-- [x] 2.6 Cookbook 6.4 records verified specs/commands and rollout Phase 3 is complete.
+- [x] 2.1 Rejected-copy spec passes independently: `npm run e2e -- tests/e2e/rejected-copy-journey.spec.ts`. — 7001dfa
+- [x] 2.2 A deliberate copy-prefill or independence regression fails the business assertion; production is restored and the spec passes again. — 7001dfa
+- [x] 2.3 Token-scoped cleanup verifies zero residue for original and copy after green and deliberate-red runs. — 7001dfa
+- [x] 2.4 Complete browser suite passes: `npm run e2e`. — 7001dfa
+- [x] 2.5 Static/build checks pass: `npm run lint`, `npm run astro -- check`, and `npm run build`. — 7001dfa
+- [x] 2.6 Cookbook 6.4 records verified specs/commands and rollout Phase 3 is complete. — 7001dfa

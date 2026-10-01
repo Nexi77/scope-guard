@@ -1,7 +1,7 @@
 ---
 change_id: testing-critical-offer-journey
 title: Critical offer journey browser tests
-status: implementing
+status: implemented
 created: 2026-10-01
 updated: 2026-10-01
 archived_at: null
