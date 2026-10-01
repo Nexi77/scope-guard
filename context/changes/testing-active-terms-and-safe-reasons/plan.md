@@ -201,8 +201,8 @@ No schema or production-data migration. Local test fixtures must be removed afte
 
 #### Automated
 
-- [x] 3.1 Comment-boundary and disclosure checks pass: `SMOKE_TRANSPORT=harness npm run smoke`.
-- [x] 3.2 Focused DOM regressions and existing browser coverage pass: `npm run e2e`.
-- [x] 3.3 Database and unit checks pass: `npm run offer-contract`, `npm run offer-items`, and `npm run offer-change-estimator`.
-- [x] 3.4 Static/build checks pass: `npm run lint`, `npm run astro -- check`, and `npm run build`.
-- [x] 3.5 Cookbook sections 6.2/6.3 reference verified commands and Phase 2 status is complete after all verification.
+- [x] 3.1 Comment-boundary and disclosure checks pass: `SMOKE_TRANSPORT=harness npm run smoke`. — 068f01b
+- [x] 3.2 Focused DOM regressions and existing browser coverage pass: `npm run e2e`. — 068f01b
+- [x] 3.3 Database and unit checks pass: `npm run offer-contract`, `npm run offer-items`, and `npm run offer-change-estimator`. — 068f01b
+- [x] 3.4 Static/build checks pass: `npm run lint`, `npm run astro -- check`, and `npm run build`. — 068f01b
+- [x] 3.5 Cookbook sections 6.2/6.3 reference verified commands and Phase 2 status is complete after all verification. — 068f01b

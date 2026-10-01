@@ -1,7 +1,7 @@
 ---
 change_id: testing-active-terms-and-safe-reasons
 title: Active terms and safe rejection reason tests
-status: implementing
+status: implemented
 created: 2026-10-01
 updated: 2026-10-01
 archived_at: null
