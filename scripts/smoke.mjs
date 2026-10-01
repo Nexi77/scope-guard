@@ -3,6 +3,8 @@
 // A running server can also be tested with BASE_URL=http://localhost:4321 npm run smoke.
 
 import { URL } from "node:url";
+import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { createClient } from "@supabase/supabase-js";
 import { createTestHarness } from "wrangler";
 
@@ -233,6 +235,232 @@ async function verifyForbiddenBaseEdits(id) {
     status: 200,
     body: `items:${items.status} revision:${revision.status} unchanged-items:${afterItems !== null && JSON.stringify(before) === JSON.stringify(afterItems)} unchanged-revision:${afterRevision !== null && JSON.stringify(before) === JSON.stringify(afterRevision)}`,
   };
+}
+
+async function verifyRejectionCommentBoundary(kind) {
+  const contractor = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const { error: signInError } = await contractor.auth.signInWithPassword({ email, password });
+  if (signInError) return { status: 0, body: "Could not authenticate rejection boundary owner." };
+  if (!["127.0.0.1", "localhost", "[::1]"].includes(new URL(supabaseUrl).hostname))
+    throw new Error("Rejection boundary cleanup requires local Supabase.");
+  const marker = `smoke-reason-${kind}-${Date.now()}`;
+  let customerId = null;
+  let fixtureOfferId = null;
+  let revisionId = null;
+  let changeId = null;
+  const read = async (query) => {
+    const result = await query;
+    if (result.error) throw new Error("Could not read isolated rejection boundary state.");
+    return result.data;
+  };
+  async function cleanupRejectionFixture() {
+    // Offer DELETE is intentionally not granted to the app. Reuse the local Docker cleanup seam.
+    if (customerId) {
+      const uuid = /^[0-9a-f-]{36}$/i;
+      if (!uuid.test(customerId) || !uuid.test(fixtureOfferId)) throw new Error("Invalid cleanup fixture identity.");
+      const project = /^project_id = "([a-z0-9-]+)"/m.exec(readFileSync("supabase/config.toml", "utf8"))?.[1];
+      if (!project) throw new Error("Local Supabase project ID is missing.");
+      const cleanup = spawnSync(
+        "docker",
+        [
+          "exec",
+          "-i",
+          `supabase_db_${project}`,
+          "psql",
+          "-U",
+          "postgres",
+          "-d",
+          "postgres",
+          "-X",
+          "-qAt",
+          "-v",
+          "ON_ERROR_STOP=1",
+        ],
+        {
+          input: `BEGIN; DELETE FROM public.offers WHERE id = '${fixtureOfferId}' AND customer_id = '${customerId}'; DELETE FROM public.customers WHERE id = '${customerId}' AND name = '${marker}'; COMMIT;`,
+          encoding: "utf8",
+          timeout: 15000,
+        },
+      );
+      if (cleanup.status !== 0) throw new Error("Could not clean up rejection boundary fixture.");
+      const residue = await Promise.all([
+        read(contractor.from("customers").select("id").eq("id", customerId)),
+        read(contractor.from("offers").select("id").eq("id", fixtureOfferId)),
+        read(contractor.from("offer_items").select("id").eq("offer_id", fixtureOfferId)),
+        read(contractor.from("offer_revisions").select("id").eq("offer_id", fixtureOfferId)),
+        read(contractor.from("offer_changes").select("id").eq("offer_id", fixtureOfferId)),
+        ...(changeId ? [read(contractor.from("change_decisions").select("id").eq("offer_change_id", changeId))] : []),
+      ]);
+      if (residue.some((rows) => rows.length > 0)) throw new Error("Rejection boundary fixture residue remains.");
+    }
+  }
+  try {
+    const { data: created, error: creationError } = await contractor.rpc("create_offer_with_customer", {
+      p_customer_id: null,
+      p_customer_name: marker,
+      p_confirm_duplicate: false,
+      p_base_scope: "Isolated rejection comment boundary",
+      p_currency_code: "PLN",
+      p_base_deadline: "2099-01-15",
+      p_items: standardItems(100),
+    });
+    customerId = created?.[0]?.customer_id ?? null;
+    fixtureOfferId = created?.[0]?.offer_id ?? null;
+    if (creationError || !customerId || !fixtureOfferId)
+      return { status: 0, body: "Could not create isolated rejection boundary fixture." };
+    const offer = await read(contractor.from("offers").select("share_token").eq("id", fixtureOfferId).single());
+    const revision = await read(
+      contractor.from("offer_revisions").select("id").eq("offer_id", fixtureOfferId).single(),
+    );
+    revisionId = revision.id;
+    const pinResponse = await requestWithTransientProxyRetry(`/api/offers/${fixtureOfferId}/pin`, { method: "POST" });
+    let pin;
+    try {
+      pin = JSON.parse(pinResponse.body).pin;
+    } catch {
+      return { status: 0, body: "Could not prepare rejection boundary PIN; sensitive response omitted." };
+    }
+    if (pinResponse.status !== 200 || !/^\d{6}$/.test(pin ?? ""))
+      return { status: 0, body: "Could not prepare rejection boundary PIN; sensitive response omitted." };
+    const decide = (targetKind, targetId, outcome, comment) =>
+      request(
+        `/api/shared/${offer.share_token}/decision`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            target_kind: targetKind,
+            target_id: targetId,
+            expected_base_revision: 1,
+            expected_active_scope_revision: 1,
+            pin,
+            outcome,
+            rejection_comment: comment,
+          }),
+        },
+        new Map(),
+      );
+    if (kind === "change") {
+      const acceptance = await decide("base", revisionId, "accepted", undefined);
+      if (acceptance.status !== 200) return { status: 0, body: "Could not accept isolated change fixture base." };
+      const items = await read(
+        contractor
+          .from("offer_items")
+          .select("id,name,quantity,unit,specification,selling_rate_minor,labor_hours_per_unit")
+          .eq("offer_id", fixtureOfferId),
+      );
+      const before = {
+        ...items[0],
+        quantity: Number(items[0].quantity),
+        selling_rate_minor: Number(items[0].selling_rate_minor),
+        labor_hours_per_unit: Number(items[0].labor_hours_per_unit),
+      };
+      const published = await request(`/api/offers/${fixtureOfferId}/changes/`, {
+        method: "POST",
+        form: {
+          change_json: JSON.stringify({
+            expected_scope_revision: 1,
+            expected_pending_change_id: null,
+            supersession_confirmed: false,
+            description: "Isolated rejection comment proposal",
+            target_deadline: "2099-01-22",
+            effects: [{ itemId: before.id, before, after: { ...before, quantity: 2 } }],
+            commercial_adjustment_minor: "0",
+          }),
+        },
+      });
+      if (published.status !== 201) return { status: 0, body: "Could not publish rejection boundary change." };
+      changeId = JSON.parse(published.body).changeId;
+    }
+    const snapshot = async () => ({
+      offer: await read(
+        contractor
+          .from("offers")
+          .select("status,base_revision,active_scope_revision")
+          .eq("id", fixtureOfferId)
+          .single(),
+      ),
+      revision: await read(
+        contractor
+          .from("offer_revisions")
+          .select("status,decision_outcome,rejection_comment,decided_at")
+          .eq("id", revisionId)
+          .single(),
+      ),
+      changes: await read(contractor.from("offer_changes").select("id,status").eq("offer_id", fixtureOfferId)),
+      decisions: changeId
+        ? await read(
+            contractor
+              .from("change_decisions")
+              .select("outcome,rejection_comment,decided_at")
+              .eq("offer_change_id", changeId),
+          )
+        : [],
+    });
+    const beforeInvalid = await snapshot();
+    const pending =
+      kind === "base"
+        ? beforeInvalid.offer.status === "pending" &&
+          beforeInvalid.revision.status === "pending" &&
+          beforeInvalid.revision.decision_outcome === null &&
+          beforeInvalid.revision.rejection_comment === null &&
+          beforeInvalid.revision.decided_at === null
+        : beforeInvalid.changes.length === 1 &&
+          beforeInvalid.changes[0].status === "pending" &&
+          beforeInvalid.decisions.length === 0;
+    if (!pending) return { status: 0, body: "Rejection boundary target must begin undecided." };
+    const invalidComments = ["", " \n\t ", 17, null, {}, "x".repeat(1001)];
+    let rejectedInvalid = 0;
+    for (const comment of invalidComments) {
+      const response = await decide(kind, kind === "base" ? revisionId : changeId, "rejected", comment);
+      const afterInvalid = await snapshot();
+      if (
+        response.status === 400 &&
+        response.body.includes("Invalid decision request") &&
+        JSON.stringify(afterInvalid) === JSON.stringify(beforeInvalid)
+      )
+        rejectedInvalid += 1;
+    }
+    const exactComment = marker + "ż".repeat(1000 - marker.length);
+    // Invalid inputs never consume the limiter; this fresh token has at most one prior acceptance.
+    const accepted = await decide(kind, kind === "base" ? revisionId : changeId, "rejected", ` \n${exactComment}\n `);
+    const after = await snapshot();
+    const recorded = kind === "base" ? after.revision : after.decisions[0];
+    const stored =
+      accepted.status === 200 &&
+      (kind === "base" ? recorded?.decision_outcome : recorded?.outcome) === "rejected" &&
+      recorded?.rejection_comment === exactComment &&
+      Boolean(recorded?.decided_at) &&
+      (kind === "base" ? after.offer.status === "rejected" : after.decisions.length === 1);
+    const ownerPages = await Promise.all([
+      request(`/offers/${fixtureOfferId}`),
+      request(`/offers/${fixtureOfferId}/history`),
+    ]);
+    const ownerSeesReason =
+      ownerPages.every((page) => page.status === 200) &&
+      ownerPages[1].body.includes(marker) &&
+      (kind !== "base" || ownerPages[0].body.includes(marker));
+    const foreignPages = await Promise.all([
+      request(`/offers/${fixtureOfferId}`, {}, foreignJar),
+      request(`/offers/${fixtureOfferId}/history`, {}, foreignJar),
+    ]);
+    const anonymousPages = await Promise.all([
+      request(`/offers/${fixtureOfferId}`, {}, new Map()),
+      request(`/offers/${fixtureOfferId}/history`, {}, new Map()),
+    ]);
+    const foreignDenied = foreignPages.every((page) => page.status === 404 && !page.body.includes(marker));
+    const anonymousDenied = anonymousPages.every(
+      (page) => page.status === 302 && page.location.startsWith("/auth/signin") && !page.body.includes(marker),
+    );
+    return {
+      status: 200,
+      body: `invalid:${rejectedInvalid}/${invalidComments.length} exact-1000:${stored} owner-reason:${ownerSeesReason} foreign-denied:${foreignDenied} anonymous-denied:${anonymousDenied}`,
+    };
+  } finally {
+    await cleanupRejectionFixture();
+  }
 }
 
 function today() {
@@ -2359,6 +2587,14 @@ const steps = [
     () => request(`/offers?customer=${foreignCustomerId}`),
     { status: 200, body: "Customer unavailable", absentBody: [foreignCustomerName, foreignScope] },
   ],
+  ...["base", "change"].map((kind) => [
+    `${kind} rejection validates comment boundaries without decisions and keeps the exact stored reason owner-scoped`,
+    () => verifyRejectionCommentBoundary(kind),
+    {
+      status: 200,
+      body: ["invalid:6/6", "exact-1000:true", "owner-reason:true", "foreign-denied:true", "anonymous-denied:true"],
+    },
+  ]),
   [
     "signout clears session",
     () => request("/api/auth/signout", { method: "POST" }),

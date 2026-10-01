@@ -31,7 +31,7 @@ export class OfferFixture {
   changeId = "";
   private shareToken = "";
   private pin = "";
-  private revisionId = "";
+  revisionId = "";
   private readonly backend: string;
   private headers: Record<string, string>;
 
@@ -106,7 +106,11 @@ export class OfferFixture {
     expect(/^\d{6}$/.test(this.pin)).toBe(true);
   }
 
-  async decide(kind: "base" | "change", outcome: "accepted" | "rejected") {
+  async decide(
+    kind: "base" | "change",
+    outcome: "accepted" | "rejected",
+    rejectionComment = "Keep the original agreement",
+  ) {
     const response = await this.request.post(`${this.baseURL}/api/shared/${this.shareToken}/decision`, {
       headers: { Origin: new URL(this.baseURL).origin },
       data: {
@@ -116,7 +120,7 @@ export class OfferFixture {
         expected_active_scope_revision: 1,
         pin: this.pin,
         outcome,
-        rejection_comment: outcome === "rejected" ? "Keep the original agreement" : undefined,
+        rejection_comment: outcome === "rejected" ? rejectionComment : undefined,
       },
     });
     expect(response.ok(), "Customer decision failed; sensitive request omitted").toBe(true);

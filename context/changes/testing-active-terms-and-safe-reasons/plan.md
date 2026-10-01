@@ -192,17 +192,17 @@ No schema or production-data migration. Local test fixtures must be removed afte
 
 #### Automated
 
-- [x] 2.1 Database invariants pass against local Supabase: `npm run offer-contract`.
-- [x] 2.2 HTTP/action checks pass against local Supabase: `SMOKE_TRANSPORT=harness npm run smoke`.
-- [x] 2.3 Unit suites pass: `npm run offer-items` and `npm run offer-change-estimator`.
-- [x] 2.4 Static checks pass: `npm run lint` and `npm run astro -- check`.
+- [x] 2.1 Database invariants pass against local Supabase: `npm run offer-contract`. — cb94923
+- [x] 2.2 HTTP/action checks pass against local Supabase: `SMOKE_TRANSPORT=harness npm run smoke`. — cb94923
+- [x] 2.3 Unit suites pass: `npm run offer-items` and `npm run offer-change-estimator`. — cb94923
+- [x] 2.4 Static checks pass: `npm run lint` and `npm run astro -- check`. — cb94923
 
 ### Phase 3: Safe rejection reasons and rollout handoff
 
 #### Automated
 
-- [ ] 3.1 Comment-boundary and disclosure checks pass: `SMOKE_TRANSPORT=harness npm run smoke`.
-- [ ] 3.2 Focused DOM regressions and existing browser coverage pass: `npm run e2e`.
-- [ ] 3.3 Database and unit checks pass: `npm run offer-contract`, `npm run offer-items`, and `npm run offer-change-estimator`.
-- [ ] 3.4 Static/build checks pass: `npm run lint`, `npm run astro -- check`, and `npm run build`.
-- [ ] 3.5 Cookbook sections 6.2/6.3 reference verified commands and Phase 2 status is complete after all verification.
+- [x] 3.1 Comment-boundary and disclosure checks pass: `SMOKE_TRANSPORT=harness npm run smoke`.
+- [x] 3.2 Focused DOM regressions and existing browser coverage pass: `npm run e2e`.
+- [x] 3.3 Database and unit checks pass: `npm run offer-contract`, `npm run offer-items`, and `npm run offer-change-estimator`.
+- [x] 3.4 Static/build checks pass: `npm run lint`, `npm run astro -- check`, and `npm run build`.
+- [x] 3.5 Cookbook sections 6.2/6.3 reference verified commands and Phase 2 status is complete after all verification.

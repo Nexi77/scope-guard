@@ -53,7 +53,7 @@ Each phase opens one change folder. Only Status and Change folder advance here; 
 | # | Phase name | Goal (one line) | Risks covered | Test types | Status | Change folder |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Decision abuse and state safety | Prove PIN boundaries, isolation, retries, and racing decisions preserve one valid outcome. | #1, #2 | contract + HTTP integration | change opened | testing-decision-abuse-and-state-safety |
-| 2 | Active terms and safe reasons | Prove decisions affect active terms and actions correctly, while rejection text stays safe. | #3, #4, #6 | unit + contract + rendered-page integration | implementing | testing-active-terms-and-safe-reasons |
+| 2 | Active terms and safe reasons | Prove decisions affect active terms and actions correctly, while rejection text stays safe. | #3, #4, #6 | unit + contract + rendered-page integration | complete | testing-active-terms-and-safe-reasons |
 | 3 | Critical offer journey | Prove the contractor and customer can complete accepted-change and rejected-copy branches. | #3, #4, #5, #6 | focused e2e | not started | — |
 | 4 | Quality gates and selective review | Enforce shipped checks in CI and inspect the two critical decision-result screens where human judgment adds signal. | #1–#6 | CI gates + selective AI-assisted visual review | not started | — |
 
@@ -102,11 +102,19 @@ Run `npm run offer-contract` and `SMOKE_TRANSPORT=harness npm run smoke` with lo
 
 ### 6.2 Active offer and pricing rules
 
-TBD — see §3 Phase 2 for pending/rejected scope and independent rounding oracles.
+Reference unit checks live in `scripts/offer-items.test.ts` and `scripts/offer-change-estimator.test.ts`. Use literal PRD-derived expectations: quantities 0.004/0.005/0.006 at 100 grosz round to 0/1/1; two half-grosz lines total 2. A change from 0.499 to 0.500 at 101 grosz has delta 1 because the rounded lines are 50 and 51. Do not generate expected amounts by calling the production helper or duplicating its arithmetic.
+
+`scripts/offer-contract.mjs` extends `verifyCurrentReads` with independent expected active deadline and scope revision. Its pending/superseded/rejected sequence uses a nonzero proposed deadline effect, which must remain inactive. The isolated fractional lifecycle starts at 2 grosz, remains 2 while pending, becomes 3 after acceptance, and stays 3 after a later rejection. Invalid price reconciliation must leave no proposal or active-state mutation. `scripts/smoke.mjs` checks rejected/agreed action availability and snapshots owner-visible offer, item, and revision state around forbidden edit requests. Read items through an authenticated owner; service-role fixture access does not grant item-table SELECT.
+
+Run `npm run offer-items`, `npm run offer-change-estimator`, and `npm run offer-contract`; run `SMOKE_TRANSPORT=harness npm run smoke` against local Supabase for action/API checks. Keep monetary units in grosz, assert persisted effects rather than HTTP status alone, and clean up isolated fixtures. The browser regression in `tests/e2e/active-terms.spec.ts` additionally checks agreed terms and actions after reload.
 
 ### 6.3 Safe rejection reasons
 
-TBD — see §3 Phase 2 for hostile input through storage and rendered contractor output.
+`scripts/smoke.mjs` contains isolated base/change rejection-comment boundary fixtures. Blank/whitespace, non-string, and 1001-character comments must return 400 without changing the pending target or recording a decision; exactly 1000 characters after trimming must survive persistence. Check the owning contractor's positive read before asserting that foreign detail/history routes return 404 and anonymous routes redirect without revealing the unique reason marker. Keep each target on its own share token, and verify cleanup of customer, offer, items, revisions, changes, and decisions.
+
+`tests/e2e/safe-reasons.spec.ts` is the real-DOM reference for hostile text. It submits script/event syntax, quotes, ampersands, a newline, and Polish text through the actual decision API, then compares exact trimmed database content with `textContent` on base detail, base history, and change history after reload. Install an execution sentinel before navigation; assert that it remains unchanged and that payload-created elements/attributes are absent. Do not replace this with an escaped-string or HTML-substring assertion. `OfferFixture.decide` accepts a reason while preserving its existing default; owner reads use real local authentication and its `finally` cleanup verifies no fixture residue.
+
+Run `SMOKE_TRANSPORT=harness npm run smoke` with local Supabase credentials, then `npm run e2e` for browser assertions. For a focused run, use `npm run e2e -- tests/e2e/safe-reasons.spec.ts`. This is rendered-page integration for risk #4; the full create/share/decide/change-or-copy journey remains rollout Phase 3.
 
 ### 6.4 Critical offer journey
 
