@@ -96,7 +96,16 @@ function effectItem(item) {
   return persisted;
 }
 
-async function verifyCurrentReads(contractor, anonymous, offer, expectedItems, expectedAmount, expectedStatuses) {
+async function verifyCurrentReads(
+  contractor,
+  anonymous,
+  offer,
+  expectedItems,
+  expectedAmount,
+  expectedStatuses,
+  expectedDeadline,
+  expectedScopeRevision,
+) {
   const { data: effectiveItems, error: effectiveError } = await contractor.rpc("get_effective_offer_items", {
     p_offer_id: offer.id,
   });
@@ -125,6 +134,21 @@ async function verifyCurrentReads(contractor, anonymous, offer, expectedItems, e
       shared.active_scope.base_scope === owned.active_scope.base_scope &&
       shared.changes.length === owned.changes.length,
     "shared reads must retain current customer-facing values",
+  );
+  expect(
+    shared.active_deadline === expectedDeadline && owned.active_deadline === expectedDeadline,
+    "current deadline must include only independently expected active calendar-day adjustments",
+  );
+  const { data: persistedScope, error: persistedScopeError } = await contractor
+    .from("offers")
+    .select("active_scope_revision")
+    .eq("id", offer.id)
+    .single();
+  expectNoError(persistedScopeError, "read persisted active scope revision");
+  expect(
+    shared.active_scope_revision === expectedScopeRevision &&
+      persistedScope.active_scope_revision === expectedScopeRevision,
+    "current scope revision must advance only for independently expected activations",
   );
   const sharedJson = JSON.stringify(shared);
   expect(
@@ -1482,6 +1506,9 @@ async function run() {
       Number(effectiveReplacementItems[0].quantity) === 3,
     "activation order must apply removal and addition effects without editing original items",
   );
+  const expectedActiveDeadline = new Date(`${deadline}T00:00:00Z`);
+  expectedActiveDeadline.setUTCDate(expectedActiveDeadline.getUTCDate() + 2);
+  const activeDeadline = expectedActiveDeadline.toISOString().slice(0, 10);
   const initialStatuses = ["superseded", "accepted", "agreed", "accepted", "accepted"];
   const replacementPublic = effectiveReplacementItems.map(publicItem);
   const { shared: replacementRead } = await verifyCurrentReads(
@@ -1491,9 +1518,9 @@ async function run() {
     replacementPublic,
     31_500,
     initialStatuses,
+    activeDeadline,
+    5,
   );
-  const expectedActiveDeadline = new Date(`${deadline}T00:00:00Z`);
-  expectedActiveDeadline.setUTCDate(expectedActiveDeadline.getUTCDate() + 2);
   expect(
     replacementRead.active_deadline === expectedActiveDeadline.toISOString().slice(0, 10),
     "active deadline must include only the accepted calendar-day adjustment",
@@ -1504,7 +1531,7 @@ async function run() {
       p_expected_scope_revision: 5,
       p_description: description,
       p_price_delta_minor: priceDelta,
-      p_deadline_delta_days: null,
+      p_deadline_delta_days: 7,
       p_estimate_snapshot: {
         scope_revision: 5,
         commercial_adjustment_minor: 0,
@@ -1527,10 +1554,16 @@ async function run() {
     return data;
   };
   const pendingReadId = await proposeReplacement("Pending quantity four", 4, 10_000);
-  await verifyCurrentReads(contractorA.client, anonymous, revisionOffer, replacementPublic, 31_500, [
-    ...initialStatuses,
-    "pending",
-  ]);
+  await verifyCurrentReads(
+    contractorA.client,
+    anonymous,
+    revisionOffer,
+    replacementPublic,
+    31_500,
+    [...initialStatuses, "pending"],
+    activeDeadline,
+    5,
+  );
   const supersedingReadId = await proposeReplacement("Superseding quantity five", 5, 20_000, pendingReadId);
   const staleOpenViewDecision = await expectError(
     decisionRpc("change", {
@@ -1542,11 +1575,16 @@ async function run() {
     "stale open view cannot decide the superseded proposal",
   );
   expect(staleOpenViewDecision.code === "PT409", "stale open view must return a conflict");
-  await verifyCurrentReads(contractorA.client, anonymous, revisionOffer, replacementPublic, 31_500, [
-    ...initialStatuses,
-    "superseded",
-    "pending",
-  ]);
+  await verifyCurrentReads(
+    contractorA.client,
+    anonymous,
+    revisionOffer,
+    replacementPublic,
+    31_500,
+    [...initialStatuses, "superseded", "pending"],
+    activeDeadline,
+    5,
+  );
   const rejectRequest = {
     p_share_token: revisionOffer.share_token,
     p_pin: "246810",
@@ -1565,11 +1603,16 @@ async function run() {
     repeatedRejectedReadDecision.decided_at === rejectedReadDecision.decided_at,
     "rejected decision retry must preserve its timestamp",
   );
-  await verifyCurrentReads(contractorA.client, anonymous, revisionOffer, replacementPublic, 31_500, [
-    ...initialStatuses,
-    "superseded",
-    "rejected",
-  ]);
+  await verifyCurrentReads(
+    contractorA.client,
+    anonymous,
+    revisionOffer,
+    replacementPublic,
+    31_500,
+    [...initialStatuses, "superseded", "rejected"],
+    activeDeadline,
+    5,
+  );
   const agreedAfter = {
     id: addedItemId,
     name: "Replacement item",
@@ -1601,6 +1644,8 @@ async function run() {
     agreedPublic,
     31_500,
     [...initialStatuses, "superseded", "rejected", "agreed"],
+    activeDeadline,
+    6,
   );
   expect(
     agreedRead.changes.at(-2).decision?.rejection_comment === "Customer declined this quantity" &&
@@ -1919,6 +1964,172 @@ async function run() {
   expect(
     ownOffers.length === 12 && ownOffers.every((offer) => offer.id !== offerB.id),
     "contractor A must not read contractor B's offer",
+  );
+
+  // Keep this fixture independent of the integer-price revision sequence above.
+  const { data: fractionalRows, error: fractionalCreateError } = await contractorA.client.rpc(
+    "create_offer_with_customer",
+    {
+      p_customer_id: offerA.customerId,
+      p_customer_name: null,
+      p_confirm_duplicate: false,
+      p_base_scope: "Fractional approval lifecycle",
+      p_currency_code: "PLN",
+      p_base_deadline: "2099-01-15",
+      p_items: ["A", "B"].map((label) => ({
+        name: `Fractional item ${label}`,
+        quantity: 0.005,
+        unit: "piece",
+        specification: "Half-grosz allowance",
+        selling_rate_minor: 100,
+        labor_hours_per_unit: 1,
+      })),
+    },
+  );
+  expectNoError(fractionalCreateError, "create isolated fractional lifecycle offer");
+  const fractionalOfferId = fractionalRows[0].offer_id;
+  const { error: fractionalPinError } = await contractorA.client.rpc("set_offer_pin", {
+    p_offer_id: fractionalOfferId,
+    p_pin: "246810",
+  });
+  expectNoError(fractionalPinError, "configure fractional lifecycle decision access");
+  const { data: fractionalOffer, error: fractionalOfferError } = await contractorA.client
+    .from("offers")
+    .select("id, share_token")
+    .eq("id", fractionalOfferId)
+    .single();
+  expectNoError(fractionalOfferError, "read fractional lifecycle offer");
+  const { data: fractionalShared, error: fractionalSharedError } = await anonymous.rpc("get_shared_offer", {
+    p_share_token: fractionalOffer.share_token,
+  });
+  expectNoError(fractionalSharedError, "read fractional base decision target");
+  const { error: fractionalBaseDecisionError } = await decisionRpc("base", {
+    p_share_token: fractionalOffer.share_token,
+    p_pin: "246810",
+    p_offer_revision_id: fractionalShared.base_revision.id,
+    p_outcome: "accepted",
+  });
+  expectNoError(fractionalBaseDecisionError, "accept fractional base offer");
+  const { data: fractionalItems, error: fractionalItemsError } = await contractorA.client.rpc(
+    "get_effective_offer_items",
+    { p_offer_id: fractionalOffer.id },
+  );
+  expectNoError(fractionalItemsError, "read fractional base items");
+  expect(
+    fractionalItems.length === 2 && fractionalItems.every((item) => Number(item.line_amount_minor) === 1),
+    "each independently rounded half-grosz base line must equal one grosz",
+  );
+  const fractionalBasePublic = fractionalItems.map((item) => ({ ...publicItem(item), line_amount_minor: "1" }));
+  await verifyCurrentReads(
+    contractorA.client,
+    anonymous,
+    fractionalOffer,
+    fractionalBasePublic,
+    2,
+    [],
+    "2099-01-15",
+    1,
+  );
+  const fractionalFirst = fractionalItems[0];
+  const fractionalProposal = (scopeRevision, before, quantity, delta) => ({
+    p_offer_id: fractionalOffer.id,
+    p_expected_scope_revision: scopeRevision,
+    p_description: "Increase a fractional line",
+    p_price_delta_minor: delta,
+    p_deadline_delta_days: 7,
+    p_estimate_snapshot: { scope_revision: scopeRevision, commercial_adjustment_minor: 0 },
+    p_item_effects: [{ item_id: before.id, before: effectItem(before), after: { ...effectItem(before), quantity } }],
+    p_confirmed_impact: true,
+    p_expected_pending_change_id: null,
+    p_supersession_confirmed: false,
+  });
+  await expectError(
+    contractorA.client.rpc("publish_offer_change_checked", fractionalProposal(1, fractionalFirst, 0.015, 0)),
+    "reject an unreconciled zero delta for independently rounded fractional lines",
+  );
+  const { data: fractionalInvalidRows, error: fractionalInvalidRowsError } = await contractorA.client
+    .from("offer_changes")
+    .select("id")
+    .eq("offer_id", fractionalOffer.id);
+  expectNoError(fractionalInvalidRowsError, "read fractional publication rollback");
+  expect(fractionalInvalidRows.length === 0, "invalid fractional delta must not persist a proposal");
+  await verifyCurrentReads(
+    contractorA.client,
+    anonymous,
+    fractionalOffer,
+    fractionalBasePublic,
+    2,
+    [],
+    "2099-01-15",
+    1,
+  );
+  const { data: fractionalChangeId, error: fractionalChangeError } = await contractorA.client.rpc(
+    "publish_offer_change_checked",
+    fractionalProposal(1, fractionalFirst, 0.015, 1),
+  );
+  expectNoError(fractionalChangeError, "publish reconciled one-grosz fractional delta");
+  await verifyCurrentReads(
+    contractorA.client,
+    anonymous,
+    fractionalOffer,
+    fractionalBasePublic,
+    2,
+    ["pending"],
+    "2099-01-15",
+    1,
+  );
+  const { error: fractionalAcceptError } = await decisionRpc("change", {
+    p_share_token: fractionalOffer.share_token,
+    p_pin: "246810",
+    p_offer_change_id: fractionalChangeId,
+    p_outcome: "accepted",
+  });
+  expectNoError(fractionalAcceptError, "accept fractional delta");
+  const fractionalAcceptedPublic = fractionalBasePublic.map((item, index) =>
+    index === 0 ? { ...item, quantity: 0.015, line_amount_minor: "2" } : item,
+  );
+  const { effectiveItems: fractionalAcceptedItems } = await verifyCurrentReads(
+    contractorA.client,
+    anonymous,
+    fractionalOffer,
+    fractionalAcceptedPublic,
+    3,
+    ["accepted"],
+    "2099-01-22",
+    2,
+  );
+  const { data: fractionalRejectedId, error: fractionalRejectedError } = await contractorA.client.rpc(
+    "publish_offer_change_checked",
+    fractionalProposal(2, fractionalAcceptedItems[0], 0.025, 1),
+  );
+  expectNoError(fractionalRejectedError, "publish subsequent fractional proposal");
+  await verifyCurrentReads(
+    contractorA.client,
+    anonymous,
+    fractionalOffer,
+    fractionalAcceptedPublic,
+    3,
+    ["accepted", "pending"],
+    "2099-01-22",
+    2,
+  );
+  const { error: fractionalRejectError } = await decisionRpc("change", {
+    p_share_token: fractionalOffer.share_token,
+    p_pin: "246810",
+    p_offer_change_id: fractionalRejectedId,
+    p_outcome: "rejected",
+    p_rejection_comment: "Keep the accepted fractional allowance",
+  });
+  expectNoError(fractionalRejectError, "reject subsequent fractional proposal");
+  await verifyCurrentReads(
+    contractorA.client,
+    anonymous,
+    fractionalOffer,
+    fractionalAcceptedPublic,
+    3,
+    ["accepted", "rejected"],
+    "2099-01-22",
+    2,
   );
 
   const { data: otherOffer, error: otherOfferError } = await contractorA.client

@@ -182,20 +182,20 @@ No schema or production-data migration. Local test fixtures must be removed afte
 
 #### Automated
 
-- [x] 1.1 Independent item helper cases pass: `npm run offer-items`.
-- [x] 1.2 Estimator regression suite passes: `npm run offer-change-estimator`.
-- [x] 1.3 Lint passes: `npm run lint`.
-- [x] 1.4 Astro typecheck passes: `npm run astro -- check`.
-- [x] 1.5 Build passes: `npm run build`.
+- [x] 1.1 Independent item helper cases pass: `npm run offer-items`. — 1b15be9
+- [x] 1.2 Estimator regression suite passes: `npm run offer-change-estimator`. — 1b15be9
+- [x] 1.3 Lint passes: `npm run lint`. — 1b15be9
+- [x] 1.4 Astro typecheck passes: `npm run astro -- check`. — 1b15be9
+- [x] 1.5 Build passes: `npm run build`. — 1b15be9
 
 ### Phase 2: Active terms and action contracts
 
 #### Automated
 
-- [ ] 2.1 Database invariants pass against local Supabase: `npm run offer-contract`.
-- [ ] 2.2 HTTP/action checks pass against local Supabase: `SMOKE_TRANSPORT=harness npm run smoke`.
-- [ ] 2.3 Unit suites pass: `npm run offer-items` and `npm run offer-change-estimator`.
-- [ ] 2.4 Static checks pass: `npm run lint` and `npm run astro -- check`.
+- [x] 2.1 Database invariants pass against local Supabase: `npm run offer-contract`.
+- [x] 2.2 HTTP/action checks pass against local Supabase: `SMOKE_TRANSPORT=harness npm run smoke`.
+- [x] 2.3 Unit suites pass: `npm run offer-items` and `npm run offer-change-estimator`.
+- [x] 2.4 Static checks pass: `npm run lint` and `npm run astro -- check`.
 
 ### Phase 3: Safe rejection reasons and rollout handoff
 

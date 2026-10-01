@@ -175,6 +175,66 @@ function offerRowAttributes(body, id) {
   return body.match(new RegExp(`<tr\\b[^>]*data-offer-id="${id}"[^>]*>`, "i"))?.[0] ?? "";
 }
 
+async function verifyForbiddenBaseEdits(id) {
+  const contractor = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const { error: signInError } = await contractor.auth.signInWithPassword({ email, password });
+  if (signInError) return { status: 0, body: "Could not authenticate the forbidden-edit snapshot owner." };
+  const snapshot = async () => {
+    const [offer, items, revisions] = await Promise.all([
+      contractor
+        .from("offers")
+        .select(
+          "status, base_scope, base_deadline, base_amount_minor, items_revision, base_revision, active_scope_revision",
+        )
+        .eq("id", id)
+        .single(),
+      contractor
+        .from("offer_items")
+        .select(
+          "id, position, name, quantity, unit, specification, selling_rate_minor, labor_hours_per_unit, line_amount_minor",
+        )
+        .eq("offer_id", id)
+        .order("position"),
+      contractor
+        .from("offer_revisions")
+        .select(
+          "id, revision, status, base_scope, base_deadline, base_amount_minor, items, decision_outcome, decided_at, rejection_comment",
+        )
+        .eq("offer_id", id)
+        .order("revision"),
+    ]);
+    if (offer.error || items.error || revisions.error) return null;
+    return { offer: offer.data, items: items.data, revisions: revisions.data };
+  };
+  const before = await snapshot();
+  if (!before || before.items.length === 0) return { status: 0, body: "Could not snapshot forbidden edit state." };
+  const changedItems = before.items.map(({ position: _position, line_amount_minor: _line, ...item }) => ({
+    ...item,
+    quantity: Number(item.quantity) + 1,
+  }));
+  const items = await request(`/api/offers/${id}/items`, {
+    method: "POST",
+    form: { expected_revision: String(before.offer.items_revision), items_json: JSON.stringify(changedItems) },
+  });
+  const afterItems = await snapshot();
+  const revision = await request(`/api/offers/${id}/revision`, {
+    method: "POST",
+    form: {
+      expected_revision: String(before.offer.base_revision),
+      base_scope: "Forbidden replacement must not persist",
+      base_deadline: "2099-02-01",
+      items_json: JSON.stringify(changedItems),
+    },
+  });
+  const afterRevision = await snapshot();
+  return {
+    status: 200,
+    body: `items:${items.status} revision:${revision.status} unchanged-items:${afterItems !== null && JSON.stringify(before) === JSON.stringify(afterItems)} unchanged-revision:${afterRevision !== null && JSON.stringify(before) === JSON.stringify(afterRevision)}`,
+  };
+}
+
 function today() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -1015,6 +1075,33 @@ const steps = [
         "history:200:true",
       ],
       absentBody: ["Current agreed work", "Record a change", 'aria-label="Offer actions"'],
+    },
+  ],
+  [
+    "rejected base offers neither edit nor proposal and denies direct edits without mutation",
+    async () => {
+      const rows = await request(`/offers?customer=${reusedCustomerId}`);
+      const edit = await request(`/offers/${rejectedOfferId}/edit`);
+      const proposal = await request(`/offers/${rejectedOfferId}/changes/new`);
+      const denied = await verifyForbiddenBaseEdits(rejectedOfferId);
+      return {
+        ...denied,
+        body: `${denied.body} row-edit:${offerRowAttributes(rows.body, rejectedOfferId).includes('data-can-edit="false"')} row-proposal:${offerRowAttributes(rows.body, rejectedOfferId).includes('data-can-propose-change="false"')} edit:${edit.status}:${edit.body.includes("Offer editing unavailable")} proposal:${proposal.status}:${proposal.body.includes("Change proposal unavailable")} list:${rows.status}`,
+      };
+    },
+    {
+      status: 200,
+      body: [
+        "items:409",
+        "revision:409",
+        "unchanged-items:true",
+        "unchanged-revision:true",
+        "row-edit:true",
+        "row-proposal:true",
+        "edit:404:true",
+        "proposal:404:true",
+        "list:200",
+      ],
     },
   ],
   [
@@ -2217,6 +2304,44 @@ const steps = [
         );
         return values.pages >= 2 && values.events > 2 && values.events === values.unique;
       },
+    },
+  ],
+  [
+    "agreed offer permits proposals but denies base edit routes and commands without mutation",
+    async () => {
+      // Agreed is a retained offer state; zero-impact changes alone leave accepted offers accepted.
+      const { error: fixtureError } = await admin.from("offers").update({ status: "agreed" }).eq("id", reusedOfferId);
+      if (fixtureError) return { status: 0, body: "Could not configure the agreed offer fixture." };
+      const rows = await request(`/offers?customer=${reusedCustomerId}`);
+      const detail = await request(`/offers/${reusedOfferId}`);
+      const edit = await request(`/offers/${reusedOfferId}/edit`);
+      const proposal = await request(`/offers/${reusedOfferId}/changes/new`);
+      const { data: state, error: stateError } = await admin
+        .from("offers")
+        .select("status")
+        .eq("id", reusedOfferId)
+        .single();
+      const denied = await verifyForbiddenBaseEdits(reusedOfferId);
+      return {
+        ...denied,
+        body: `${denied.body} agreed:${!stateError && state?.status === "agreed"} list:${rows.status} row-edit:${offerRowAttributes(rows.body, reusedOfferId).includes('data-can-edit="false"')} row-proposal:${offerRowAttributes(rows.body, reusedOfferId).includes('data-can-propose-change="true"')} detail:${detail.status}:${detail.body.includes('aria-label="Offer actions"')}:${!detail.body.includes("Edit pending offer")} edit:${edit.status}:${edit.body.includes("Offer editing unavailable")} proposal:${proposal.status}:${proposal.body.includes("Propose a change")}`,
+      };
+    },
+    {
+      status: 200,
+      body: [
+        "agreed:true",
+        "list:200",
+        "row-edit:true",
+        "row-proposal:true",
+        "detail:200:true:true",
+        "edit:404:true",
+        "proposal:200:true",
+        "items:409",
+        "revision:409",
+        "unchanged-items:true",
+        "unchanged-revision:true",
+      ],
     },
   ],
   [
