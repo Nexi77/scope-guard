@@ -55,7 +55,7 @@ Each phase opens one change folder. Only Status and Change folder advance here; 
 | 1 | Decision abuse and state safety | Prove PIN boundaries, isolation, retries, and racing decisions preserve one valid outcome. | #1, #2 | contract + HTTP integration | complete | testing-decision-abuse-and-state-safety |
 | 2 | Active terms and safe reasons | Prove decisions affect active terms and actions correctly, while rejection text stays safe. | #3, #4, #6 | unit + contract + rendered-page integration | complete | testing-active-terms-and-safe-reasons |
 | 3 | Critical offer journey | Prove the contractor and customer can complete accepted-change and rejected-copy branches. | #3, #4, #5, #6 | focused e2e | complete | testing-critical-offer-journey |
-| 4 | Quality gates and selective review | Enforce shipped checks in CI and inspect the two critical decision-result screens where human judgment adds signal. | #1–#6 | CI gates + selective AI-assisted visual review | implementing | testing-quality-gates-and-selective-review |
+| 4 | Quality gates and selective review | Enforce shipped checks in CI and inspect the two critical decision-result screens where human judgment adds signal. | #1–#6 | CI gates + selective AI-assisted visual review | complete | testing-quality-gates-and-selective-review |
 
 Status vocabulary: `not started` → `change opened` → `researched` → `planned` → `implementing` → `complete`.
 
@@ -130,7 +130,15 @@ Run `npm run e2e -- tests/e2e/accepted-change-journey.spec.ts` or `npm run e2e -
 
 ### 6.5 New API endpoints and gates
 
-TBD — see §3 Phase 4 for the cheapest API pattern, CI command, and selective review rule.
+For a new authenticated API route, extend `scripts/smoke.mjs` when the risk is HTTP authorization, validation or persistence. Reuse its request/cookie helpers and isolated owner/foreign-contractor fixtures. Assert owner success **and the persisted effect**, malformed-payload rejection, anonymous 401, foreign-owner 404 without disclosing the owner's data, and hostile-Origin 403. Snapshot relevant persisted state before denied mutations and compare afterwards; a status code alone does not prove non-mutation. Clean up each isolated fixture. Use the route's actual contract where its failure response differs, rather than changing product behavior to fit a generic matrix.
+
+Put transactional/RPC invariants in `scripts/offer-contract.mjs`; public token/PIN, stale and idempotent decision checks follow §6.1. Add browser coverage only when meaningful rendering, navigation or session continuity supplies missing signal. Do not repeat the entire HTTP failure matrix in E2E. Run `SMOKE_TRANSPORT=harness npm run smoke` for HTTP checks and `npm run offer-contract` for database contracts against local Supabase.
+
+The shipped `.github/workflows/ci.yml` runs on pull requests and pushes to master. Its static job uses `npm ci`, `npx astro sync`, `npm run lint`, `npx astro check`, `npm run offer-items`, `npm run offer-change-estimator`, and `npm run build`. Its existing local-backend job starts disposable Supabase, runs `node scripts/ci-e2e-env.mjs prepare`, then contract, build and Worker-harness smoke checks. It installs lockfile Chromium with `npx playwright install --with-deps chromium` and runs the full `npm run e2e` suite with `CI=true`; always-run teardown invokes helper cleanup and stops Supabase.
+
+The provisioning helper requires a loopback HTTP backend, creates a dedicated confirmed contractor with a random password, writes ignored `.env`/`.dev.vars` with mode 0600, and refuses existing configuration. Its private ownership record restricts cleanup to its own unchanged files and user. Never overwrite developer credentials to reproduce CI; preserve and restore any deliberately temporary local configuration. Startup/status output, credentials, PINs and auth state stay private. CI uses list reporting with trace/screenshot/video disabled and no HTML-report or artifact upload. Local command, fresh-build E2E and cleanup verification is recorded in `context/changes/testing-quality-gates-and-selective-review/ci-verification.md`; it does not prove Ubuntu browser installation or a remote GitHub run. Record that evidence after authorized publication.
+
+Selective review is bounded to customer `/shared/{token}` with an accepted base and pending change, and contractor `/offers/{offerId}` with a rejected offer. Inspect both at 390×844 and 1440×900 using local synthetic fixtures: current versus proposed terms, rejection reason, copy/history next steps, wrapping, keyboard focus and empty-submit errors. Distinguish intentional item-table scrolling from whole-page overflow. Keep PINs empty or cleared before capture, disable private diagnostics, and retain only four curated screenshots plus build/theme/scenario observations in the change's review artifact. Assert zero fixture residue in all six domain tables. Human review confirms clarity or records concrete follow-up findings; significant UI changes receive a separate change. These screenshots are review evidence, not automated baselines or a broader browser-support contract.
 
 ## 7. What We Deliberately Don't Test
 

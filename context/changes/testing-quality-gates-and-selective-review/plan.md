@@ -154,21 +154,21 @@ No product-data/schema migration. CI user/configuration is disposable; local ver
 
 #### Automated
 
-- [x] 1.1 Unit suites pass: `npm run offer-items` and `npm run offer-change-estimator`.
-- [x] 1.2 Provisioning proves loopback enforcement, overwrite refusal, dedicated-user cleanup and byte-preservation of existing local environment files.
-- [x] 1.3 Static checks pass: `npm run lint` and `npm run astro -- check`.
-- [x] 1.4 Existing local backend checks pass: `npm run offer-contract` and `SMOKE_TRANSPORT=harness npm run smoke`.
-- [x] 1.5 Full browser suite passes with CI settings and a fresh build: `CI=true npm run e2e`.
-- [x] 1.6 Workflow inspection maps all required commands to PR jobs; CI configuration retains no trace/screenshot/video/HTML artifacts, and local verification records its remote-run limitation.
+- [x] 1.1 Unit suites pass: `npm run offer-items` and `npm run offer-change-estimator`. — fdd1792
+- [x] 1.2 Provisioning proves loopback enforcement, overwrite refusal, dedicated-user cleanup and byte-preservation of existing local environment files. — fdd1792
+- [x] 1.3 Static checks pass: `npm run lint` and `npm run astro -- check`. — fdd1792
+- [x] 1.4 Existing local backend checks pass: `npm run offer-contract` and `SMOKE_TRANSPORT=harness npm run smoke`. — fdd1792
+- [x] 1.5 Full browser suite passes with CI settings and a fresh build: `CI=true npm run e2e`. — fdd1792
+- [x] 1.6 Workflow inspection maps all required commands to PR jobs; CI configuration retains no trace/screenshot/video/HTML artifacts, and local verification records its remote-run limitation. — fdd1792
 
 ### Phase 2: Selective decision review and cookbook
 
 #### Automated
 
-- [ ] 2.1 Four safe review screenshots and review.md identify the two routes, two viewports, scenario/theme/build, concrete observations and keyboard/error checks.
-- [ ] 2.2 Synthetic review fixtures are removed with asserted zero residue in the six domain tables.
-- [ ] 2.3 Cookbook 6.5 names verified CI commands, HTTP/transaction examples, review scope and privacy rules; rollout status becomes complete after user review.
+- [x] 2.1 Four safe review screenshots and review.md identify the two routes, two viewports, scenario/theme/build, concrete observations and keyboard/error checks.
+- [x] 2.2 Synthetic review fixtures are removed with asserted zero residue in the six domain tables.
+- [x] 2.3 Cookbook 6.5 names verified CI commands, HTTP/transaction examples, review scope and privacy rules; rollout status becomes complete after user review.
 
 #### Manual
 
-- [ ] 2.4 User reviews the curated customer and contractor screenshots and confirms the documented clarity assessment or records required follow-up findings.
+- [x] 2.4 User reviews the curated customer and contractor screenshots and confirms the documented clarity assessment or records required follow-up findings.
