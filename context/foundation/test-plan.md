@@ -54,7 +54,7 @@ Each phase opens one change folder. Only Status and Change folder advance here; 
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Decision abuse and state safety | Prove PIN boundaries, isolation, retries, and racing decisions preserve one valid outcome. | #1, #2 | contract + HTTP integration | complete | testing-decision-abuse-and-state-safety |
 | 2 | Active terms and safe reasons | Prove decisions affect active terms and actions correctly, while rejection text stays safe. | #3, #4, #6 | unit + contract + rendered-page integration | complete | testing-active-terms-and-safe-reasons |
-| 3 | Critical offer journey | Prove the contractor and customer can complete accepted-change and rejected-copy branches. | #3, #4, #5, #6 | focused e2e | implementing | testing-critical-offer-journey |
+| 3 | Critical offer journey | Prove the contractor and customer can complete accepted-change and rejected-copy branches. | #3, #4, #5, #6 | focused e2e | complete | testing-critical-offer-journey |
 | 4 | Quality gates and selective review | Enforce shipped checks in CI and inspect the two critical decision-result screens where human judgment adds signal. | #1–#6 | CI gates + selective AI-assisted visual review | not started | — |
 
 Status vocabulary: `not started` → `change opened` → `researched` → `planned` → `implementing` → `complete`.
@@ -118,7 +118,15 @@ Run `SMOKE_TRANSPORT=harness npm run smoke` with local Supabase credentials, the
 
 ### 6.4 Critical offer journey
 
-TBD — see §3 Phase 3 for creation, sharing, accepted change, and rejected copy.
+`tests/e2e/accepted-change-journey.spec.ts` drives UI creation, PIN generation/sharing, anonymous base acceptance, change preview/publication, and anonymous change acceptance. Its literal oracle starts with quantity 1 at 100.00 PLN and deadline 2099-01-15; quantity 2 previews +100.00 PLN with target 2099-01-22. Both reloaded views stay at the original terms while pending, then show 200.00 PLN/quantity 2/new deadline after approval. History retains the original accepted version and accepted proposal effects.
+
+`tests/e2e/rejected-copy-journey.spec.ts` independently creates and anonymously rejects an offer through UI, checks its reason, and opens the copy action. Assert every hydrated prefill before changing the rate from 100.00 to 150.00 PLN. The new pending proposal has independent offer/share/item/revision identity and null decision/comment/time. Reloaded original views and full owner-readable offer/item/revision snapshots retain the rejected 100.00 PLN source and its history. Authenticated reads corroborate state; they do not perform journey actions.
+
+Use the seed's accessible locators and hydration wait, an explicitly anonymous customer context, and a unique annotated fixture token. `OfferFixture.cleanup` removes all offers for that exact customer, including the copy, and asserts zero residue in all six domain tables; nested `finally` preserves cleanup even if context closure fails. Never mock internal auth/API/database boundaries or generate expectations from production pricing helpers.
+
+PIN generation output is captured privately and immediately cleared by reload. Both journey specs and auth setup disable trace/screenshot/video. Playwright's ordinary `fill` retains the value in HTML step titles even with tracing off: `tests/e2e/private-input.ts` enters PINs and setup credentials with native input events through an accessible locator, without value-bearing titles. Do not log private values or assert them with value-bearing diagnostics. Inspect retained reports privately when changing this helper.
+
+Run `npm run e2e -- tests/e2e/accepted-change-journey.spec.ts` or `npm run e2e -- tests/e2e/rejected-copy-journey.spec.ts`; full suite: `npm run e2e`. Require local Docker/Supabase and ignored credentials as documented in `test-stack.md`. Stop exploration previews and use a free `E2E_PORT` so webServer rebuilds current code. Deliberate regressions were caught on post-approval 200.00 PLN and copied scope prefill; production was restored and all seven setup/browser tests passed. Keep CI enforcement and selective visual review assigned to Phase 4.
 
 ### 6.5 New API endpoints and gates
 

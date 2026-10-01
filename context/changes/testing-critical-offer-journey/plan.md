@@ -148,19 +148,19 @@ No schema or production-data migration. Local journey fixtures must be removed e
 
 #### Automated
 
-- [x] 1.1 Accepted-change spec passes independently: `npm run e2e -- tests/e2e/accepted-change-journey.spec.ts`.
-- [x] 1.2 A deliberate regression to post-approval terms fails the business assertion; production is restored and the spec passes again.
-- [x] 1.3 Token-scoped cleanup verifies zero journey residue after green and deliberate-red runs.
-- [x] 1.4 Existing specs pass after shared-helper changes: `npm run e2e`.
-- [x] 1.5 Static checks pass: `npm run lint` and `npm run astro -- check`.
+- [x] 1.1 Accepted-change spec passes independently: `npm run e2e -- tests/e2e/accepted-change-journey.spec.ts`. — 55ae0ca
+- [x] 1.2 A deliberate regression to post-approval terms fails the business assertion; production is restored and the spec passes again. — 55ae0ca
+- [x] 1.3 Token-scoped cleanup verifies zero journey residue after green and deliberate-red runs. — 55ae0ca
+- [x] 1.4 Existing specs pass after shared-helper changes: `npm run e2e`. — 55ae0ca
+- [x] 1.5 Static checks pass: `npm run lint` and `npm run astro -- check`. — 55ae0ca
 
 ### Phase 2: Rejected-copy journey
 
 #### Automated
 
-- [ ] 2.1 Rejected-copy spec passes independently: `npm run e2e -- tests/e2e/rejected-copy-journey.spec.ts`.
-- [ ] 2.2 A deliberate copy-prefill or independence regression fails the business assertion; production is restored and the spec passes again.
-- [ ] 2.3 Token-scoped cleanup verifies zero residue for original and copy after green and deliberate-red runs.
-- [ ] 2.4 Complete browser suite passes: `npm run e2e`.
-- [ ] 2.5 Static/build checks pass: `npm run lint`, `npm run astro -- check`, and `npm run build`.
-- [ ] 2.6 Cookbook 6.4 records verified specs/commands and rollout Phase 3 is complete.
+- [x] 2.1 Rejected-copy spec passes independently: `npm run e2e -- tests/e2e/rejected-copy-journey.spec.ts`.
+- [x] 2.2 A deliberate copy-prefill or independence regression fails the business assertion; production is restored and the spec passes again.
+- [x] 2.3 Token-scoped cleanup verifies zero residue for original and copy after green and deliberate-red runs.
+- [x] 2.4 Complete browser suite passes: `npm run e2e`.
+- [x] 2.5 Static/build checks pass: `npm run lint`, `npm run astro -- check`, and `npm run build`.
+- [x] 2.6 Cookbook 6.4 records verified specs/commands and rollout Phase 3 is complete.

@@ -18,3 +18,5 @@ Owned browser/preview closed and uniquely named exploration customer removed (ze
 - Production source was restored byte-for-byte (SHA-256 `de8d38bcc0dea4e899b54bfe69ec6b94cf1f07b4ecc1447466f8360232cc7be0`).
 - Restored cold-build full suite on port 4348: 6 passed (6.9s), including the new journey and all existing coverage. Asserted six-table cleanup passed in every fixture.
 - `npm run lint` passed; `npm run astro -- check` reported 84 files with zero errors/warnings/hints. The E2E webServer completed the production build before verification.
+
+Phase 2 subsequently hardened private inputs in both journeys and setup: ordinary `fill` retained values in HTML report titles despite disabled tracing. `private-input.ts` preserves native input events without value-bearing titles; final suite and report inspection passed. See `rejected-live-flow.md` for the later verification.

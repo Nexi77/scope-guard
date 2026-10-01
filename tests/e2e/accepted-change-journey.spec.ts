@@ -3,6 +3,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { OfferFixture } from "./offer-fixture";
 import { waitForInteractivePage } from "./ready";
+import { enterPrivateInput } from "./private-input";
 
 // This journey generates a private PIN. Do not retain value-bearing browser artifacts.
 test.use({ trace: "off", screenshot: "off", video: "off" });
@@ -29,12 +30,7 @@ async function customerTerms(page: Page, amount: string, quantity: string, deadl
 async function accept(page: Page, pin: string, kind: "offer" | "change") {
   await waitForInteractivePage(page);
   await page.getByRole("button", { name: `Accept ${kind}`, exact: true }).click();
-  // Playwright's fill call log can contain its argument: replace sensitive failures.
-  try {
-    await page.getByRole("textbox", { name: "Six-digit offer PIN required", exact: true }).fill(pin);
-  } catch {
-    throw new Error("Customer PIN input failed; sensitive details omitted");
-  }
+  await enterPrivateInput(page.getByRole("textbox", { name: "Six-digit offer PIN required", exact: true }), pin);
   await page.getByRole("button", { name: "Confirm acceptance", exact: true }).click();
   await expect(
     page.getByText(`This ${kind === "offer" ? "offer" : "change proposal"} was accepted.`, { exact: true }),
