@@ -53,6 +53,14 @@ void test("subtracts rounded before and after lines, including a half-grosz case
   assert.equal(result.priceDeltaMinor, "0");
 });
 
+void test("subtracts rounded fractional lines instead of rounding the raw quantity difference", () => {
+  const before = item({ quantity: 0.499, selling_rate_minor: 101, labor_hours_per_unit: 0 });
+  const after = item({ quantity: 0.5, selling_rate_minor: 101, labor_hours_per_unit: 0 });
+  const result = estimate(before, after);
+  assert.equal(result.itemEffectsDeltaMinor, "1");
+  assert.equal(result.priceDeltaMinor, "1");
+});
+
 void test("supports signed reductions and successive changes from the latest baseline", () => {
   const first = estimate(item({ quantity: 2 }), item({ quantity: 1 }));
   const second = estimate(item({ quantity: 3 }), item({ quantity: 4 }));
