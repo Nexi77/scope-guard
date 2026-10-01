@@ -58,7 +58,7 @@ export class OfferFixture {
     return value as T[];
   }
 
-  async create() {
+  async authenticate() {
     const login = await this.request.post(`${this.backend}/auth/v1/token?grant_type=password`, {
       headers: this.headers,
       data: { email: process.env.E2E_USERNAME, password: process.env.E2E_PASSWORD },
@@ -66,6 +66,10 @@ export class OfferFixture {
     expect(login.ok(), "Local fixture authentication failed").toBe(true);
     const session = (await login.json()) as { access_token: string };
     this.headers.Authorization = `Bearer ${session.access_token}`;
+  }
+
+  async create() {
+    await this.authenticate();
 
     const response = await this.request.post(`${this.baseURL}/api/offers`, {
       headers: { Origin: new URL(this.baseURL).origin },

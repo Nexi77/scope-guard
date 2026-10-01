@@ -52,9 +52,9 @@ Each phase opens one change folder. Only Status and Change folder advance here; 
 
 | # | Phase name | Goal (one line) | Risks covered | Test types | Status | Change folder |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Decision abuse and state safety | Prove PIN boundaries, isolation, retries, and racing decisions preserve one valid outcome. | #1, #2 | contract + HTTP integration | change opened | testing-decision-abuse-and-state-safety |
+| 1 | Decision abuse and state safety | Prove PIN boundaries, isolation, retries, and racing decisions preserve one valid outcome. | #1, #2 | contract + HTTP integration | complete | testing-decision-abuse-and-state-safety |
 | 2 | Active terms and safe reasons | Prove decisions affect active terms and actions correctly, while rejection text stays safe. | #3, #4, #6 | unit + contract + rendered-page integration | complete | testing-active-terms-and-safe-reasons |
-| 3 | Critical offer journey | Prove the contractor and customer can complete accepted-change and rejected-copy branches. | #3, #4, #5, #6 | focused e2e | not started | — |
+| 3 | Critical offer journey | Prove the contractor and customer can complete accepted-change and rejected-copy branches. | #3, #4, #5, #6 | focused e2e | implementing | testing-critical-offer-journey |
 | 4 | Quality gates and selective review | Enforce shipped checks in CI and inspect the two critical decision-result screens where human judgment adds signal. | #1–#6 | CI gates + selective AI-assisted visual review | not started | — |
 
 Status vocabulary: `not started` → `change opened` → `researched` → `planned` → `implementing` → `complete`.
