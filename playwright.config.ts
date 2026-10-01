@@ -22,11 +22,12 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
-  reporter: [["list"], ["html", { open: "never" }]],
+  reporter: process.env.CI ? [["list"]] : [["list"], ["html", { open: "never" }]],
   use: {
     baseURL,
-    trace: "on-first-retry",
-    screenshot: "only-on-failure",
+    trace: process.env.CI ? "off" : "on-first-retry",
+    screenshot: process.env.CI ? "off" : "only-on-failure",
+    video: "off",
   },
   projects: [
     { name: "setup", testMatch: /.*\.setup\.ts/ },
