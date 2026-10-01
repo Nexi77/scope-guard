@@ -1,10 +1,10 @@
 ---
 change_id: testing-quality-gates-and-selective-review
 title: CI quality gates and selective decision screen review
-status: implemented
+status: archived
 created: 2026-10-01
 updated: 2026-10-01
-archived_at: null
+archived_at: 2026-10-01T20:46:45Z
 ---
 
 ## Notes
